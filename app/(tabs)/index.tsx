@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -11,8 +12,15 @@ import {
 } from 'react-native';
 
 const DEFAULT_BACKEND_URL = 'http://192.168.68.50:8000';
+const DEFAULT_API_TOKEN = '';
+const DEFAULT_CONTROL_MODE = 'pc';
 const COMMAND_PREFIXES = ['otwórz', 'zamknij', 'puść', 'znajdź na spotify'];
 const QUICK_COMMANDS = ['Spotify', 'YouTube', 'Netflix', 'Steam'];
+const SETTINGS_KEYS = {
+  backendUrl: 'jarvis.settings.backendUrl',
+  apiToken: 'jarvis.settings.apiToken',
+  controlMode: 'jarvis.settings.controlMode',
+};
 const PHONE_APPS = {
   spotify: {
     label: 'Spotify',
@@ -95,13 +103,99 @@ async function readResponse(response: Response) {
 
 export default function HomeScreen() {
   const [backendUrl, setBackendUrl] = useState(DEFAULT_BACKEND_URL);
-  const [apiToken, setApiToken] = useState('');
+  const [apiToken, setApiToken] = useState(DEFAULT_API_TOKEN);
   const [message, setMessage] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [controlMode, setControlMode] = useState<ControlMode>('pc');
+  const [controlMode, setControlMode] = useState<ControlMode>(DEFAULT_CONTROL_MODE);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const skipNextSettingsSave = useRef(false);
 
   const canSend = useMemo(() => message.trim().length > 0 && !loading, [loading, message]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadSettings() {
+      try {
+        const values = await AsyncStorage.multiGet([
+          SETTINGS_KEYS.backendUrl,
+          SETTINGS_KEYS.apiToken,
+          SETTINGS_KEYS.controlMode,
+        ]);
+        const settings = Object.fromEntries(values);
+        const savedControlMode = settings[SETTINGS_KEYS.controlMode];
+
+        if (!isMounted) {
+          return;
+        }
+
+        setBackendUrl(settings[SETTINGS_KEYS.backendUrl] ?? DEFAULT_BACKEND_URL);
+        setApiToken(settings[SETTINGS_KEYS.apiToken] ?? DEFAULT_API_TOKEN);
+        setControlMode(
+          savedControlMode === 'phone' || savedControlMode === 'pc'
+            ? savedControlMode
+            : DEFAULT_CONTROL_MODE
+        );
+      } catch {
+        if (isMounted) {
+          setHistory((items) => [
+            {
+              id: Date.now(),
+              title: 'Ustawienia',
+              detail: 'Nie udało się wczytać ustawień.',
+              isError: true,
+            },
+            ...items,
+          ]);
+        }
+      } finally {
+        if (isMounted) {
+          setSettingsLoaded(true);
+        }
+      }
+    }
+
+    loadSettings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!settingsLoaded) {
+      return;
+    }
+
+    if (skipNextSettingsSave.current) {
+      skipNextSettingsSave.current = false;
+
+      if (
+        backendUrl === DEFAULT_BACKEND_URL &&
+        apiToken === DEFAULT_API_TOKEN &&
+        controlMode === DEFAULT_CONTROL_MODE
+      ) {
+        return;
+      }
+    }
+
+    AsyncStorage.multiSet([
+      [SETTINGS_KEYS.backendUrl, backendUrl],
+      [SETTINGS_KEYS.apiToken, apiToken],
+      [SETTINGS_KEYS.controlMode, controlMode],
+    ]).catch(() => {
+      setHistory((items) => [
+        {
+          id: Date.now(),
+          title: 'Ustawienia',
+          detail: 'Nie udało się zapisać ustawień.',
+          isError: true,
+        },
+        ...items,
+      ]);
+    });
+  }, [apiToken, backendUrl, controlMode, settingsLoaded]);
 
   function addHistory(title: string, detail: string, isError = false) {
     setHistory((items) => [
@@ -157,6 +251,27 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function clearSettings() {
+    skipNextSettingsSave.current = true;
+
+    try {
+      await AsyncStorage.multiRemove([
+        SETTINGS_KEYS.backendUrl,
+        SETTINGS_KEYS.apiToken,
+        SETTINGS_KEYS.controlMode,
+      ]);
+    } catch {
+      skipNextSettingsSave.current = false;
+      addHistory('Ustawienia', 'Nie udało się wyczyścić ustawień.', true);
+      return;
+    }
+
+    setBackendUrl(DEFAULT_BACKEND_URL);
+    setApiToken(DEFAULT_API_TOKEN);
+    setControlMode(DEFAULT_CONTROL_MODE);
+    addHistory('Ustawienia', 'Ustawienia wyczyszczone.');
   }
 
   async function sendText(text: string, mode: RequestMode) {
@@ -292,6 +407,7 @@ export default function HomeScreen() {
         />
 
         <ActionButton title="Sprawdź status" onPress={checkStatus} disabled={loading} />
+        <ActionButton title="Wyczyść ustawienia" onPress={clearSettings} />
       </View>
 
       <View style={styles.panel}>
