@@ -290,12 +290,11 @@ export default function HomeScreen() {
           return;
         }
 
+        setPcConnectionStatus('aktywne');
+
         if (!response.ok) {
-          setPcConnectionStatus('brak');
           return;
         }
-
-        setPcConnectionStatus('aktywne');
 
         if (response.status === 204) {
           lastPendingCommand.current = null;
@@ -309,7 +308,14 @@ export default function HomeScreen() {
           return;
         }
 
-        const pending = JSON.parse(text) as PendingPhoneCommand;
+        let pending: PendingPhoneCommand;
+
+        try {
+          pending = JSON.parse(text) as PendingPhoneCommand;
+        } catch {
+          lastPendingCommand.current = null;
+          return;
+        }
 
         if (pending.action !== 'open_mobile_app' || !pending.target) {
           lastPendingCommand.current = null;
