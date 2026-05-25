@@ -176,7 +176,6 @@ export default function HomeScreen() {
   const [selectedNoteId, setSelectedNoteId] = useState(NOTES[0].id);
   const skipNextSettingsSave = useRef(false);
   const pollingInFlight = useRef(false);
-  const lastPendingCommand = useRef<string | null>(null);
 
   const canSend = useMemo(() => message.trim().length > 0 && !loading, [loading, message]);
   const selectedNote = NOTES.find((note) => note.id === selectedNoteId) ?? NOTES[0];
@@ -321,14 +320,12 @@ export default function HomeScreen() {
         }
 
         if (response.status === 204) {
-          lastPendingCommand.current = null;
           return;
         }
 
         const text = await response.text();
 
         if (!text) {
-          lastPendingCommand.current = null;
           return;
         }
 
@@ -337,12 +334,10 @@ export default function HomeScreen() {
         try {
           pending = JSON.parse(text) as PendingPhoneCommand;
         } catch {
-          lastPendingCommand.current = null;
           return;
         }
 
         if (pending.action !== 'open_mobile_app' || !pending.target) {
-          lastPendingCommand.current = null;
           return;
         }
 
@@ -352,13 +347,6 @@ export default function HomeScreen() {
           return;
         }
 
-        const commandSignature = `${pending.action}:${target}`;
-
-        if (lastPendingCommand.current === commandSignature) {
-          return;
-        }
-
-        lastPendingCommand.current = commandSignature;
         await openPhoneApp(target, false);
         addHistory('PC', `Komenda z PC: otwieram ${target}`);
       } catch {
