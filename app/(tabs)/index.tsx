@@ -59,23 +59,6 @@ const PHONE_APPS = {
   },
 };
 const APP_KEYS = ['spotify', 'youtube', 'netflix', 'steam', 'discord', 'whatsapp', 'teams'] as const;
-const NOTES = [
-  {
-    id: 'backend',
-    title: 'Backend',
-    body: 'Status backendu sprawdzisz z górnego panelu. Chat i komendy używają X-Jarvis-Token.',
-  },
-  {
-    id: 'phone',
-    title: 'Telefon',
-    body: 'W trybie telefonu aplikacje otwierają się lokalnie przez deep link, a potem przez fallback web.',
-  },
-  {
-    id: 'pc',
-    title: 'PC',
-    body: 'W trybie PC przyciski aplikacji wysyłają otwórz/zamknij do lokalnego backendu.',
-  },
-];
 
 type HistoryItem = {
   id: number;
@@ -91,6 +74,14 @@ type AppTab = 'chat' | 'apps' | 'notes' | 'settings';
 type PendingPhoneCommand = {
   action?: string;
   target?: string;
+};
+type NoteSummary = {
+  id: string;
+  title: string;
+  createdAt: string;
+};
+type NoteDetail = NoteSummary & {
+  content: string;
 };
 
 function trimSlash(value: string) {
@@ -122,6 +113,97 @@ function getPhoneAppFromCommand(text: string) {
 
 function isPhoneAppKey(value: string): value is PhoneAppKey {
   return value in PHONE_APPS;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readStringField(value: unknown) {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return String(value);
+  }
+
+  return '';
+}
+
+function formatNoteDate(value: unknown) {
+  const rawValue = readStringField(value);
+
+  if (!rawValue) {
+    return 'Brak daty';
+  }
+
+  const date = new Date(rawValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return rawValue;
+  }
+
+  return date.toLocaleString();
+}
+
+function getNoteCreatedAt(note: Record<string, unknown>) {
+  return note.created_at ?? note.createdAt ?? note.created ?? note.timestamp ?? '';
+}
+
+function normalizeNoteSummary(value: unknown): NoteSummary | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const id = readStringField(value.id ?? value.note_id);
+
+  if (!id) {
+    return null;
+  }
+
+  return {
+    id,
+    title: readStringField(value.title) || 'Bez tytułu',
+    createdAt: formatNoteDate(getNoteCreatedAt(value)),
+  };
+}
+
+function normalizeNoteDetail(value: unknown): NoteDetail | null {
+  if (isRecord(value) && isRecord(value.note)) {
+    return normalizeNoteDetail(value.note);
+  }
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const summary = normalizeNoteSummary(value);
+
+  if (!summary) {
+    return null;
+  }
+
+  return {
+    ...summary,
+    content: readStringField(value.content ?? value.body ?? value.text) || 'Brak treści.',
+  };
+}
+
+function getNotesArray(payload: unknown) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (isRecord(payload) && Array.isArray(payload.notes)) {
+    return payload.notes;
+  }
+
+  if (isRecord(payload) && Array.isArray(payload.items)) {
+    return payload.items;
+  }
+
+  return [];
 }
 
 function readJsonValue(value: unknown) {
@@ -173,12 +255,18 @@ export default function HomeScreen() {
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
   const [backendStatus, setBackendStatus] = useState('Nie sprawdzono');
   const [pcConnectionStatus, setPcConnectionStatus] = useState<'aktywne' | 'brak'>('brak');
-  const [selectedNoteId, setSelectedNoteId] = useState(NOTES[0].id);
+  const [notes, setNotes] = useState<NoteSummary[]>([]);
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [selectedNote, setSelectedNote] = useState<NoteDetail | null>(null);
+  const [notesStatus, setNotesStatus] = useState('');
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [newNoteTitle, setNewNoteTitle] = useState('');
+  const [newNoteContent, setNewNoteContent] = useState('');
+  const [isNewNoteOpen, setIsNewNoteOpen] = useState(false);
   const skipNextSettingsSave = useRef(false);
   const pollingInFlight = useRef(false);
 
   const canSend = useMemo(() => message.trim().length > 0 && !loading, [loading, message]);
-  const selectedNote = NOTES.find((note) => note.id === selectedNoteId) ?? NOTES[0];
 
   const addHistory = useCallback((title: string, detail: string, isError = false) => {
     setHistory((items) => [
@@ -367,6 +455,161 @@ export default function HomeScreen() {
     };
   }, [addHistory, apiToken, backendUrl, openPhoneApp, settingsLoaded]);
 
+  async function readNotesPayload(response: Response) {
+    const text = await response.text();
+
+    if (!text) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      return text;
+    }
+  }
+
+  const requestNotesBackend = useCallback(async (path: string, options?: RequestInit) => {
+    const baseUrl = trimSlash(backendUrl);
+    const token = apiToken.trim();
+    let response: Response;
+
+    if (!baseUrl || !token) {
+      throw new Error('Podaj Backend URL i API Token.');
+    }
+
+    try {
+      response = await fetch(`${baseUrl}${path}`, {
+        ...options,
+        headers: {
+          ...(options?.headers ?? {}),
+          'X-Jarvis-Token': token,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(`Nie można połączyć się z backendem. ${error.message}`);
+      }
+
+      throw new Error('Nie można połączyć się z backendem.');
+    }
+
+    const payload = await readNotesPayload(response);
+
+    if (response.status === 401 || response.status === 403) {
+      throw new Error('Unauthorized');
+    }
+
+    if (!response.ok) {
+      const detail = isRecord(payload) ? readStringField(payload.detail) : readStringField(payload);
+      throw new Error(detail ? `Błąd: ${detail}` : `Backend zwrócił błąd ${response.status}.`);
+    }
+
+    return payload;
+  }, [apiToken, backendUrl]);
+
+  const loadNoteDetails = useCallback(async (noteId: string) => {
+    setNotesLoading(true);
+    setNotesStatus('');
+
+    try {
+      const payload = await requestNotesBackend(`/notes/${encodeURIComponent(noteId)}`);
+      const detail = normalizeNoteDetail(payload);
+
+      if (!detail) {
+        throw new Error('Nie udało się odczytać notatki.');
+      }
+
+      setSelectedNoteId(detail.id);
+      setSelectedNote(detail);
+    } catch (error) {
+      setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
+    } finally {
+      setNotesLoading(false);
+    }
+  }, [requestNotesBackend]);
+
+  const loadNotesList = useCallback(async (selectFirst = false) => {
+    setNotesLoading(true);
+    setNotesStatus('');
+
+    try {
+      const payload = await requestNotesBackend('/notes');
+      const nextNotes = getNotesArray(payload)
+        .map(normalizeNoteSummary)
+        .filter((note): note is NoteSummary => note !== null);
+
+      setNotes(nextNotes);
+
+      if (selectFirst && nextNotes.length > 0) {
+        await loadNoteDetails(nextNotes[0].id);
+      } else if (nextNotes.length === 0) {
+        setSelectedNoteId(null);
+        setSelectedNote(null);
+        setNotesStatus('Brak notatek.');
+      }
+    } catch (error) {
+      setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
+    } finally {
+      setNotesLoading(false);
+    }
+  }, [loadNoteDetails, requestNotesBackend]);
+
+  const createNote = useCallback(async () => {
+    const title = newNoteTitle.trim();
+    const content = newNoteContent.trim();
+
+    if (!title || !content) {
+      setNotesStatus('Podaj tytuł i treść notatki.');
+      return;
+    }
+
+    setNotesLoading(true);
+    setNotesStatus('');
+
+    try {
+      await requestNotesBackend('/notes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title, content }),
+      });
+      setNewNoteTitle('');
+      setNewNoteContent('');
+      setIsNewNoteOpen(false);
+      await loadNotesList(true);
+    } catch (error) {
+      setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
+    } finally {
+      setNotesLoading(false);
+    }
+  }, [loadNotesList, newNoteContent, newNoteTitle, requestNotesBackend]);
+
+  const deleteNote = useCallback(async (noteId: string) => {
+    setNotesLoading(true);
+    setNotesStatus('');
+
+    try {
+      await requestNotesBackend(`/notes/${encodeURIComponent(noteId)}`, {
+        method: 'DELETE',
+      });
+      setSelectedNoteId(null);
+      setSelectedNote(null);
+      await loadNotesList(true);
+    } catch (error) {
+      setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
+    } finally {
+      setNotesLoading(false);
+    }
+  }, [loadNotesList, requestNotesBackend]);
+
+  useEffect(() => {
+    if (activeTab === 'notes' && settingsLoaded) {
+      loadNotesList(notes.length === 0);
+    }
+  }, [activeTab, loadNotesList, notes.length, settingsLoaded]);
+
   async function requestBackend(path: string, options?: RequestInit) {
     const baseUrl = trimSlash(backendUrl);
     let response: Response;
@@ -541,9 +784,21 @@ export default function HomeScreen() {
         ) : null}
         {activeTab === 'notes' ? (
           <NotesPanel
+            notes={notes}
             selectedNote={selectedNote}
             selectedNoteId={selectedNoteId}
-            onSelectNote={setSelectedNoteId}
+            notesStatus={notesStatus}
+            notesLoading={notesLoading}
+            newNoteTitle={newNoteTitle}
+            newNoteContent={newNoteContent}
+            isNewNoteOpen={isNewNoteOpen}
+            onRefresh={() => loadNotesList(true)}
+            onSelectNote={loadNoteDetails}
+            onDeleteNote={deleteNote}
+            onCreateNote={createNote}
+            onNewNoteTitleChange={setNewNoteTitle}
+            onNewNoteContentChange={setNewNoteContent}
+            onToggleNewNote={() => setIsNewNoteOpen((value) => !value)}
           />
         ) : null}
         {activeTab === 'settings' ? (
@@ -684,31 +939,123 @@ function AppsPanel({ controlMode, loading, onAction }: AppsPanelProps) {
 }
 
 type NotesPanelProps = {
-  selectedNote: (typeof NOTES)[number];
-  selectedNoteId: string;
+  notes: NoteSummary[];
+  selectedNote: NoteDetail | null;
+  selectedNoteId: string | null;
+  notesStatus: string;
+  notesLoading: boolean;
+  newNoteTitle: string;
+  newNoteContent: string;
+  isNewNoteOpen: boolean;
+  onRefresh: () => void;
   onSelectNote: (noteId: string) => void;
+  onDeleteNote: (noteId: string) => void;
+  onCreateNote: () => void;
+  onNewNoteTitleChange: (value: string) => void;
+  onNewNoteContentChange: (value: string) => void;
+  onToggleNewNote: () => void;
 };
 
-function NotesPanel({ selectedNote, selectedNoteId, onSelectNote }: NotesPanelProps) {
+function NotesPanel({
+  notes,
+  selectedNote,
+  selectedNoteId,
+  notesStatus,
+  notesLoading,
+  newNoteTitle,
+  newNoteContent,
+  isNewNoteOpen,
+  onRefresh,
+  onSelectNote,
+  onDeleteNote,
+  onCreateNote,
+  onNewNoteTitleChange,
+  onNewNoteContentChange,
+  onToggleNewNote,
+}: NotesPanelProps) {
   return (
     <ScrollView style={styles.panelScroll} contentContainerStyle={styles.notesContent}>
+      <View style={styles.notesToolbar}>
+        <Pressable onPress={onToggleNewNote} style={styles.notePrimaryButton}>
+          <Text style={styles.notePrimaryButtonText}>Nowa notatka</Text>
+        </Pressable>
+        <Pressable onPress={onRefresh} style={styles.noteSecondaryButton}>
+          <Text style={styles.noteSecondaryButtonText}>Odśwież</Text>
+        </Pressable>
+      </View>
+
+      {isNewNoteOpen ? (
+        <View style={styles.noteEditor}>
+          <Text style={styles.sectionTitle}>Nowa notatka</Text>
+          <TextInput
+            value={newNoteTitle}
+            onChangeText={onNewNoteTitleChange}
+            placeholder="Tytuł"
+            placeholderTextColor="#6e8397"
+            style={styles.input}
+          />
+          <TextInput
+            value={newNoteContent}
+            onChangeText={onNewNoteContentChange}
+            multiline
+            placeholder="Treść"
+            placeholderTextColor="#6e8397"
+            style={[styles.input, styles.noteContentInput]}
+          />
+          <Pressable
+            onPress={onCreateNote}
+            disabled={notesLoading}
+            style={({ pressed }) => [
+              styles.notePrimaryButton,
+              (pressed || notesLoading) && styles.buttonPressed,
+            ]}>
+            <Text style={styles.notePrimaryButtonText}>Zapisz notatkę</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {notesStatus ? (
+        <Text selectable style={styles.notesStatus}>
+          {notesStatus}
+        </Text>
+      ) : null}
+
+      {notesLoading ? <ActivityIndicator color="#22f2ff" /> : null}
+
       <View style={styles.noteList}>
-        {NOTES.map((note) => (
+        {notes.map((note) => (
           <Pressable
             key={note.id}
             onPress={() => onSelectNote(note.id)}
             style={[styles.noteRow, selectedNoteId === note.id && styles.noteRowActive]}>
             <Text style={styles.noteTitle}>{note.title}</Text>
+            <Text selectable style={styles.noteDate}>
+              {note.createdAt}
+            </Text>
           </Pressable>
         ))}
       </View>
 
-      <View style={styles.notePreview}>
-        <Text style={styles.sectionTitle}>{selectedNote.title}</Text>
-        <Text selectable style={styles.noteBody}>
-          {selectedNote.body}
-        </Text>
-      </View>
+      {selectedNote ? (
+        <View style={styles.notePreview}>
+          <Text style={styles.sectionTitle}>{selectedNote.title}</Text>
+          <Text selectable style={styles.noteDate}>
+            {selectedNote.createdAt}
+          </Text>
+          <Text selectable style={styles.noteBody}>
+            {selectedNote.content}
+          </Text>
+          <Pressable
+            onPress={() => onDeleteNote(selectedNote.id)}
+            disabled={notesLoading}
+            style={({ pressed }) => [
+              styles.noteDeleteButton,
+              (pressed || notesLoading) && styles.buttonPressed,
+            ]}>
+            <Text style={styles.noteDeleteButtonText}>Usuń</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
@@ -1009,11 +1356,62 @@ const styles = StyleSheet.create({
     padding: 18,
     paddingBottom: 26,
   },
+  notesToolbar: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  notePrimaryButton: {
+    minHeight: 54,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    backgroundColor: '#22f2ff',
+    paddingHorizontal: 14,
+  },
+  notePrimaryButtonText: {
+    color: '#03101a',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  noteSecondaryButton: {
+    minHeight: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#9b7cff',
+    borderRadius: 8,
+    backgroundColor: '#110d28',
+    paddingHorizontal: 16,
+  },
+  noteSecondaryButtonText: {
+    color: '#dbcfff',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  noteEditor: {
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#1e3569',
+    borderRadius: 8,
+    backgroundColor: '#081322',
+    padding: 16,
+  },
+  noteContentInput: {
+    minHeight: 132,
+    textAlignVertical: 'top',
+  },
+  notesStatus: {
+    color: '#9ab2ca',
+    fontSize: 16,
+    lineHeight: 24,
+  },
   noteList: {
     gap: 12,
   },
   noteRow: {
-    minHeight: 58,
+    minHeight: 72,
+    gap: 6,
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#1e3569',
@@ -1029,6 +1427,11 @@ const styles = StyleSheet.create({
     color: '#f2fbff',
     fontSize: 18,
     fontWeight: '900',
+  },
+  noteDate: {
+    color: '#9ab2ca',
+    fontSize: 14,
+    lineHeight: 20,
   },
   notePreview: {
     gap: 12,
@@ -1047,6 +1450,21 @@ const styles = StyleSheet.create({
     color: '#d8edf4',
     fontSize: 17,
     lineHeight: 26,
+  },
+  noteDeleteButton: {
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#ff5b8a',
+    borderRadius: 8,
+    backgroundColor: '#1b0815',
+    paddingHorizontal: 14,
+  },
+  noteDeleteButtonText: {
+    color: '#ffc0d0',
+    fontSize: 16,
+    fontWeight: '900',
   },
   settingsContent: {
     gap: 18,
