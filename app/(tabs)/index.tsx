@@ -124,7 +124,19 @@ function isPhoneAppKey(value: string): value is PhoneAppKey {
   return value in PHONE_APPS;
 }
 
-async function readResponse(response: Response) {
+function readJsonValue(value: unknown) {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  return null;
+}
+
+async function readBackendResponse(response: Response) {
   const text = await response.text();
 
   if (!text) {
@@ -132,7 +144,19 @@ async function readResponse(response: Response) {
   }
 
   try {
-    return JSON.stringify(JSON.parse(text), null, 2);
+    const data = JSON.parse(text) as Record<string, unknown>;
+    const responseValue = readJsonValue(data.response);
+    const detailValue = readJsonValue(data.detail);
+
+    if (responseValue) {
+      return responseValue;
+    }
+
+    if (detailValue) {
+      return `Błąd: ${detailValue}`;
+    }
+
+    return 'OK';
   } catch {
     return text;
   }
@@ -377,7 +401,7 @@ export default function HomeScreen() {
       throw new Error('Unauthorized');
     }
 
-    const detail = await readResponse(response);
+    const detail = await readBackendResponse(response);
 
     if (!response.ok) {
       throw new Error(`Backend zwrócił błąd ${response.status}: ${detail}`);
