@@ -10,6 +10,7 @@
     "web": "expo start --web",
     "start:dev-client": "expo start --dev-client",
     "build:development": "eas build --profile development",
+    "postinstall": "patch-package",
     "lint": "expo lint"
   },
   "dependencies": {
@@ -46,6 +47,7 @@
     "@types/react": "~19.1.0",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
+    "patch-package": "^8.0.1",
     "typescript": "~5.9.2"
   },
   "private": true
