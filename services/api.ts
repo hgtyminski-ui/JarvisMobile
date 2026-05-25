@@ -90,29 +90,29 @@ async function readTextOrJson(response: Response) {
   }
 }
 
-async function readBackendMessage(response: Response) {
+export async function parseApiResponse(response: Response) {
   const payload = await readTextOrJson(response);
 
-  if (payload === null) {
-    return 'OK';
-  }
+  let message = 'OK';
 
   if (isRecord(payload)) {
     const responseValue = readJsonValue(payload.response);
     const detailValue = readJsonValue(payload.detail);
 
     if (responseValue) {
-      return responseValue;
+      message = responseValue;
+    } else if (detailValue) {
+      message = detailValue;
     }
-
-    if (detailValue) {
-      return `Błąd: ${detailValue}`;
-    }
-
-    return 'OK';
+  } else if (payload !== null) {
+    message = readStringField(payload) || 'OK';
   }
 
-  return readStringField(payload) || 'OK';
+  if (!response.ok) {
+    throw new Error(message || `Błąd backendu: ${response.status}`);
+  }
+
+  return message;
 }
 
 async function fetchBackend(config: ApiConfig, path: string, options?: RequestInit) {
@@ -120,11 +120,7 @@ async function fetchBackend(config: ApiConfig, path: string, options?: RequestIn
 
   try {
     return await fetch(`${baseUrl}${path}`, options);
-  } catch (error) {
-    if (error instanceof Error) {
-      throw new Error(`Nie można połączyć się z backendem. ${error.message}`);
-    }
-
+  } catch {
     throw new Error('Nie można połączyć się z backendem.');
   }
 }
@@ -136,13 +132,11 @@ async function requestMessage(config: ApiConfig, path: string, options?: Request
     throw new Error('Unauthorized');
   }
 
-  const detail = await readBackendMessage(response);
-
-  if (!response.ok) {
-    throw new Error(`Backend zwrócił błąd ${response.status}: ${detail}`);
+  try {
+    return await parseApiResponse(response);
+  } catch {
+    throw new Error(`Błąd backendu: ${response.status}`);
   }
-
-  return detail;
 }
 
 async function requestJson(config: ApiConfig, path: string, options?: RequestInit) {
@@ -157,12 +151,8 @@ async function requestJson(config: ApiConfig, path: string, options?: RequestIni
         'X-Jarvis-Token': token,
       },
     });
-  } catch (error) {
-    if (error instanceof Error) {
-      throw new Error(`Nie można połączyć się z backendem. ${error.message}`);
-    }
-
-    throw new Error('Nie można połączyć się z backendem.');
+  } catch {
+    throw new Error('Brak połączenia z backendem');
   }
 
   const payload = await readTextOrJson(response);
@@ -173,7 +163,7 @@ async function requestJson(config: ApiConfig, path: string, options?: RequestIni
 
   if (!response.ok) {
     const detail = isRecord(payload) ? readStringField(payload.detail) : readStringField(payload);
-    throw new Error(detail ? `Błąd: ${detail}` : `Backend zwrócił błąd ${response.status}.`);
+    throw new Error(detail || `Błąd backendu: ${response.status}`);
   }
 
   return payload;

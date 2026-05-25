@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "JarvisMobile",
+    "name": "Jarvis Mobile",
     "slug": "JarvisMobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,9 +9,15 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jarvis.mobile",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Jarvis Mobile needs microphone access for voice commands.",
+        "NSSpeechRecognitionUsageDescription": "Jarvis Mobile uses speech recognition to turn your voice into commands."
+      }
     },
     "android": {
+      "package": "com.jarvis.mobile",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -19,7 +25,10 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "output": "static",
@@ -43,6 +52,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b6dcc33d-1bb4-4283-be21-50f23877ae75"
+      }
     }
   }
 }

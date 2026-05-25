@@ -87,9 +87,7 @@ export default function HomeScreen() {
     }
 
     if (speech.error) {
-      return speech.error === 'Voice recognition requires custom dev build'
-        ? 'Voice unavailable in Expo Go'
-        : speech.error;
+      return speech.error;
     }
 
     return '';
