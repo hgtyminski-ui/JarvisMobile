@@ -8,16 +8,24 @@ type ChatScreenProps = {
   history: HistoryItem[];
   message: string;
   canSend: boolean;
+  voiceStatus: string;
+  isListening: boolean;
   onMessageChange: (value: string) => void;
   onSend: () => void;
+  onPushToTalkStart: () => void;
+  onPushToTalkEnd: () => void;
 };
 
 export function ChatScreen({
   history,
   message,
   canSend,
+  voiceStatus,
+  isListening,
   onMessageChange,
   onSend,
+  onPushToTalkStart,
+  onPushToTalkEnd,
 }: ChatScreenProps) {
   return (
     <View style={styles.screen}>
@@ -45,6 +53,20 @@ export function ChatScreen({
       </ScrollView>
 
       <View style={styles.composer}>
+        <View style={styles.voiceColumn}>
+          <HudButton
+            title="PTT"
+            variant={isListening ? 'primary' : 'secondary'}
+            onPressIn={onPushToTalkStart}
+            onPressOut={onPushToTalkEnd}
+            style={styles.voiceButton}
+          />
+          {voiceStatus ? (
+            <Text selectable style={styles.voiceStatus}>
+              {voiceStatus}
+            </Text>
+          ) : null}
+        </View>
         <TextInput
           value={message}
           onChangeText={onMessageChange}
@@ -119,6 +141,19 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#151d35',
     backgroundColor: '#05070d',
+  },
+  voiceColumn: {
+    width: 76,
+    gap: 6,
+  },
+  voiceButton: {
+    minWidth: 76,
+  },
+  voiceStatus: {
+    color: '#9ab2ca',
+    fontSize: 11,
+    fontWeight: '800',
+    lineHeight: 15,
   },
   messageInput: {
     minHeight: 54,

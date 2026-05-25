@@ -4,6 +4,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Pressable, StyleSheet, Text, V
 import { HudButton } from '@/components/HudButton';
 import { HudPanel } from '@/components/HudPanel';
 import { StatusBadge } from '@/components/StatusBadge';
+import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import {
   createNote as createBackendNote,
   deleteNote as deleteBackendNote,
@@ -71,9 +72,28 @@ export default function HomeScreen() {
   const [isNewNoteOpen, setIsNewNoteOpen] = useState(false);
   const skipNextSettingsSave = useRef(false);
   const pollingInFlight = useRef(false);
+  const lastRecognizedText = useRef('');
+  const speech = useSpeechRecognition();
 
   const apiConfig = useMemo<ApiConfig>(() => ({ backendUrl, apiToken }), [apiToken, backendUrl]);
   const canSend = useMemo(() => message.trim().length > 0 && !loading, [loading, message]);
+  const voiceStatus = useMemo(() => {
+    if (speech.isListening) {
+      return 'Słucham...';
+    }
+
+    if (speech.recognizedText) {
+      return `Rozpoznano: ${speech.recognizedText}`;
+    }
+
+    if (speech.error) {
+      return speech.error === 'Voice recognition requires custom dev build'
+        ? 'Voice unavailable in Expo Go'
+        : speech.error;
+    }
+
+    return '';
+  }, [speech.error, speech.isListening, speech.recognizedText]);
 
   const addHistory = useCallback((title: string, detail: string, isError = false) => {
     setHistory((items) => [
@@ -301,6 +321,17 @@ export default function HomeScreen() {
     }
   }, [activeTab, loadNotesList, notes.length, settingsLoaded]);
 
+  useEffect(() => {
+    const text = speech.recognizedText.trim();
+
+    if (!text || text === lastRecognizedText.current) {
+      return;
+    }
+
+    lastRecognizedText.current = text;
+    setMessage(text);
+  }, [speech.recognizedText]);
+
   async function checkStatus() {
     setLoading(true);
 
@@ -448,8 +479,12 @@ export default function HomeScreen() {
             history={history}
             message={message}
             canSend={canSend}
+            voiceStatus={voiceStatus}
+            isListening={speech.isListening}
             onMessageChange={setMessage}
             onSend={sendMessage}
+            onPushToTalkStart={speech.startListening}
+            onPushToTalkEnd={speech.stopListening}
           />
         ) : null}
         {activeTab === 'apps' ? (
