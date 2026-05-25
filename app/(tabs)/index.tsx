@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +13,33 @@ import {
 const DEFAULT_BACKEND_URL = 'http://192.168.68.50:8000';
 const COMMAND_PREFIXES = ['otwórz', 'zamknij', 'puść', 'znajdź na spotify'];
 const QUICK_COMMANDS = ['Spotify', 'YouTube', 'Netflix', 'Steam'];
+const PHONE_APPS = {
+  spotify: {
+    label: 'Spotify',
+    deepLink: 'spotify:',
+    webLink: 'https://open.spotify.com',
+  },
+  youtube: {
+    label: 'YouTube',
+    deepLink: 'vnd.youtube://',
+    webLink: 'https://www.youtube.com',
+  },
+  netflix: {
+    label: 'Netflix',
+    deepLink: 'nflx://',
+    webLink: 'https://www.netflix.com',
+  },
+  steam: {
+    label: 'Steam',
+    deepLink: 'steam://',
+    webLink: 'https://store.steampowered.com',
+  },
+  discord: {
+    label: 'Discord',
+    deepLink: 'discord://',
+    webLink: 'https://discord.com/app',
+  },
+};
 
 type HistoryItem = {
   id: number;
@@ -21,6 +49,8 @@ type HistoryItem = {
 };
 
 type RequestMode = 'chat' | 'command';
+type ControlMode = 'pc' | 'phone';
+type PhoneAppKey = keyof typeof PHONE_APPS;
 
 function trimSlash(value: string) {
   return value.trim().replace(/\/+$/, '');
@@ -30,6 +60,23 @@ function isCommand(text: string) {
   const normalized = text.trim().toLowerCase();
 
   return COMMAND_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function getPhoneAppFromCommand(text: string) {
+  const normalized = text.trim().toLowerCase();
+  const match = normalized.match(/^otwórz\s+(.+)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const appName = match[1].trim();
+
+  if (appName in PHONE_APPS) {
+    return appName as PhoneAppKey;
+  }
+
+  return null;
 }
 
 async function readResponse(response: Response) {
@@ -52,6 +99,7 @@ export default function HomeScreen() {
   const [message, setMessage] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [controlMode, setControlMode] = useState<ControlMode>('pc');
 
   const canSend = useMemo(() => message.trim().length > 0 && !loading, [loading, message]);
 
@@ -143,13 +191,52 @@ export default function HomeScreen() {
     }
   }
 
+  async function openPhoneApp(appKey: PhoneAppKey) {
+    const app = PHONE_APPS[appKey];
+
+    addHistory('Telefon', `Otwieram ${app.label} na telefonie.`);
+
+    try {
+      await Linking.openURL(app.deepLink);
+    } catch {
+      addHistory('Telefon', 'Nie udało się otworzyć aplikacji, otwieram wersję web.', true);
+
+      try {
+        await Linking.openURL(app.webLink);
+      } catch {
+        addHistory('Telefon', 'Nie udało się otworzyć aplikacji ani strony.', true);
+      }
+    }
+  }
+
   function sendMessage() {
     const cleanText = message.trim();
+
+    if (controlMode === 'phone') {
+      const phoneApp = getPhoneAppFromCommand(cleanText);
+
+      if (phoneApp) {
+        setMessage('');
+        openPhoneApp(phoneApp);
+        return;
+      }
+
+      sendText(cleanText, 'chat');
+      return;
+    }
+
     sendText(cleanText, isCommand(cleanText) ? 'command' : 'chat');
   }
 
   function sendQuickCommand(name: string) {
-    sendText(`otwórz ${name.toLowerCase()}`, 'command');
+    const appKey = name.toLowerCase() as PhoneAppKey;
+
+    if (controlMode === 'phone') {
+      openPhoneApp(appKey);
+      return;
+    }
+
+    sendText(`otwórz ${appKey}`, 'command');
   }
 
   return (
@@ -164,6 +251,19 @@ export default function HomeScreen() {
         <Text selectable style={styles.subtitle}>
           Secure command bridge for your local backend.
         </Text>
+      </View>
+
+      <View style={styles.modeSwitch}>
+        <ModeButton
+          title="Steruj PC"
+          active={controlMode === 'pc'}
+          onPress={() => setControlMode('pc')}
+        />
+        <ModeButton
+          title="Steruj telefonem"
+          active={controlMode === 'phone'}
+          onPress={() => setControlMode('phone')}
+        />
       </View>
 
       <View style={styles.panel}>
@@ -270,6 +370,26 @@ function ActionButton({ title, onPress, disabled }: ActionButtonProps) {
   );
 }
 
+type ModeButtonProps = {
+  title: string;
+  active: boolean;
+  onPress: () => void;
+};
+
+function ModeButton({ title, active, onPress }: ModeButtonProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.modeButton,
+        active && styles.modeButtonActive,
+        pressed && styles.buttonPressed,
+      ]}>
+      <Text style={[styles.modeButtonText, active && styles.modeButtonTextActive]}>{title}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -308,6 +428,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#061321',
     borderRadius: 8,
     padding: 14,
+  },
+  modeSwitch: {
+    flexDirection: 'row',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#114d62',
+    borderRadius: 8,
+    backgroundColor: '#04101c',
+    padding: 6,
+  },
+  modeButton: {
+    minHeight: 44,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+  },
+  modeButtonActive: {
+    backgroundColor: '#22f2ff',
+  },
+  modeButtonText: {
+    color: '#8fb4c5',
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  modeButtonTextActive: {
+    color: '#021019',
   },
   label: {
     color: '#9fefff',
