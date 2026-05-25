@@ -1,247 +1,53 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, KeyboardAvoidingView, Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { HudButton } from '@/components/HudButton';
+import { HudPanel } from '@/components/HudPanel';
+import { StatusBadge } from '@/components/StatusBadge';
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Linking,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+  createNote as createBackendNote,
+  deleteNote as deleteBackendNote,
+  getNote,
+  getNotes,
+  getPhonePending,
+  getStatus,
+  sendChat,
+  sendCommand,
+  toggleApp,
+  type ApiConfig,
+  type HistoryItem,
+  type NoteDetail,
+  type NoteSummary,
+} from '@/services/api';
+import {
+  getMobileAppFromCommand,
+  isMobileAppKey,
+  MOBILE_APPS,
+  openMobileApp,
+  type MobileAppKey,
+} from '@/services/mobileLinks';
+import {
+  clearSettings as clearStoredSettings,
+  DEFAULT_API_TOKEN,
+  DEFAULT_BACKEND_URL,
+  DEFAULT_CONTROL_MODE,
+  loadSettings,
+  saveSettings as saveStoredSettings,
+  type ControlMode,
+} from '@/services/storage';
+import { AppsScreen } from '@/screens/AppsScreen';
+import { ChatScreen } from '@/screens/ChatScreen';
+import { NotesScreen } from '@/screens/NotesScreen';
+import { SettingsScreen } from '@/screens/SettingsScreen';
 
-const DEFAULT_BACKEND_URL = 'http://192.168.68.50:8000';
-const DEFAULT_API_TOKEN = '';
-const DEFAULT_CONTROL_MODE = 'pc';
 const COMMAND_PREFIXES = ['otwórz', 'zamknij', 'puść', 'znajdź na spotify'];
-const SETTINGS_KEYS = {
-  backendUrl: 'jarvis.settings.backendUrl',
-  apiToken: 'jarvis.settings.apiToken',
-  controlMode: 'jarvis.settings.controlMode',
-};
-const PHONE_APPS = {
-  spotify: {
-    label: 'Spotify',
-    deepLink: 'spotify:',
-    webLink: 'https://open.spotify.com',
-  },
-  youtube: {
-    label: 'YouTube',
-    deepLink: 'vnd.youtube://',
-    webLink: 'https://www.youtube.com',
-  },
-  netflix: {
-    label: 'Netflix',
-    deepLink: 'nflx://',
-    webLink: 'https://www.netflix.com',
-  },
-  steam: {
-    label: 'Steam',
-    deepLink: 'steam://',
-    webLink: 'https://store.steampowered.com',
-  },
-  discord: {
-    label: 'Discord',
-    deepLink: 'discord://',
-    webLink: 'https://discord.com/app',
-  },
-  whatsapp: {
-    label: 'WhatsApp',
-    deepLink: 'whatsapp://',
-    webLink: 'https://wa.me/',
-  },
-  teams: {
-    label: 'Teams',
-    deepLink: 'msteams://',
-    webLink: 'https://teams.microsoft.com',
-  },
-};
-const APP_KEYS = ['spotify', 'youtube', 'netflix', 'steam', 'discord', 'whatsapp', 'teams'] as const;
 
-type HistoryItem = {
-  id: number;
-  title: string;
-  detail: string;
-  isError?: boolean;
-};
-
-type RequestMode = 'chat' | 'command';
-type ControlMode = 'pc' | 'phone';
-type PhoneAppKey = keyof typeof PHONE_APPS;
 type AppTab = 'chat' | 'apps' | 'notes' | 'settings';
-type PendingPhoneCommand = {
-  action?: string;
-  target?: string;
-};
-type NoteSummary = {
-  id: string;
-  title: string;
-  createdAt: string;
-};
-type NoteDetail = NoteSummary & {
-  content: string;
-};
-
-function trimSlash(value: string) {
-  return value.trim().replace(/\/+$/, '');
-}
 
 function isCommand(text: string) {
   const normalized = text.trim().toLowerCase();
 
   return COMMAND_PREFIXES.some((prefix) => normalized.startsWith(prefix));
-}
-
-function getPhoneAppFromCommand(text: string) {
-  const normalized = text.trim().toLowerCase();
-  const match = normalized.match(/^otwórz\s+(.+)$/);
-
-  if (!match) {
-    return null;
-  }
-
-  const appName = match[1].trim();
-
-  if (appName in PHONE_APPS) {
-    return appName as PhoneAppKey;
-  }
-
-  return null;
-}
-
-function isPhoneAppKey(value: string): value is PhoneAppKey {
-  return value in PHONE_APPS;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function readStringField(value: unknown) {
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  if (typeof value === 'number') {
-    return String(value);
-  }
-
-  return '';
-}
-
-function formatNoteDate(value: unknown) {
-  const rawValue = readStringField(value);
-
-  if (!rawValue) {
-    return 'Brak daty';
-  }
-
-  const date = new Date(rawValue);
-
-  if (Number.isNaN(date.getTime())) {
-    return rawValue;
-  }
-
-  return date.toLocaleString();
-}
-
-function getNoteCreatedAt(note: Record<string, unknown>) {
-  return note.created_at ?? note.createdAt ?? note.created ?? note.timestamp ?? '';
-}
-
-function normalizeNoteSummary(value: unknown): NoteSummary | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const id = readStringField(value.id ?? value.note_id);
-
-  if (!id) {
-    return null;
-  }
-
-  return {
-    id,
-    title: readStringField(value.title) || 'Bez tytułu',
-    createdAt: formatNoteDate(getNoteCreatedAt(value)),
-  };
-}
-
-function normalizeNoteDetail(value: unknown): NoteDetail | null {
-  if (isRecord(value) && isRecord(value.note)) {
-    return normalizeNoteDetail(value.note);
-  }
-
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const summary = normalizeNoteSummary(value);
-
-  if (!summary) {
-    return null;
-  }
-
-  return {
-    ...summary,
-    content: readStringField(value.content ?? value.body ?? value.text) || 'Brak treści.',
-  };
-}
-
-function getNotesArray(payload: unknown) {
-  if (Array.isArray(payload)) {
-    return payload;
-  }
-
-  if (isRecord(payload) && Array.isArray(payload.notes)) {
-    return payload.notes;
-  }
-
-  if (isRecord(payload) && Array.isArray(payload.items)) {
-    return payload.items;
-  }
-
-  return [];
-}
-
-function readJsonValue(value: unknown) {
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value);
-  }
-
-  return null;
-}
-
-async function readBackendResponse(response: Response) {
-  const text = await response.text();
-
-  if (!text) {
-    return 'OK';
-  }
-
-  try {
-    const data = JSON.parse(text) as Record<string, unknown>;
-    const responseValue = readJsonValue(data.response);
-    const detailValue = readJsonValue(data.detail);
-
-    if (responseValue) {
-      return responseValue;
-    }
-
-    if (detailValue) {
-      return `Błąd: ${detailValue}`;
-    }
-
-    return 'OK';
-  } catch {
-    return text;
-  }
 }
 
 export default function HomeScreen() {
@@ -266,6 +72,7 @@ export default function HomeScreen() {
   const skipNextSettingsSave = useRef(false);
   const pollingInFlight = useRef(false);
 
+  const apiConfig = useMemo<ApiConfig>(() => ({ backendUrl, apiToken }), [apiToken, backendUrl]);
   const canSend = useMemo(() => message.trim().length > 0 && !loading, [loading, message]);
 
   const addHistory = useCallback((title: string, detail: string, isError = false) => {
@@ -280,24 +87,20 @@ export default function HomeScreen() {
     ]);
   }, []);
 
-  const openPhoneApp = useCallback(
-    async (appKey: PhoneAppKey, showStartMessage = true) => {
-      const app = PHONE_APPS[appKey];
-
+  const openPhoneAppWithHistory = useCallback(
+    async (appKey: MobileAppKey, showStartMessage = true) => {
       if (showStartMessage) {
-        addHistory('Telefon', `Otwieram ${app.label} na telefonie.`);
+        addHistory('Telefon', `Otwieram ${MOBILE_APPS[appKey].label} na telefonie.`);
       }
 
       try {
-        await Linking.openURL(app.deepLink);
+        await openMobileApp(appKey, {
+          onFallback: () => {
+            addHistory('Telefon', 'Nie udało się otworzyć aplikacji, otwieram wersję web.', true);
+          },
+        });
       } catch {
-        addHistory('Telefon', 'Nie udało się otworzyć aplikacji, otwieram wersję web.', true);
-
-        try {
-          await Linking.openURL(app.webLink);
-        } catch {
-          addHistory('Telefon', 'Nie udało się otworzyć aplikacji ani strony.', true);
-        }
+        addHistory('Telefon', 'Nie udało się otworzyć aplikacji ani strony.', true);
       }
     },
     [addHistory]
@@ -306,27 +109,17 @@ export default function HomeScreen() {
   useEffect(() => {
     let isMounted = true;
 
-    async function loadSettings() {
+    async function hydrateSettings() {
       try {
-        const values = await AsyncStorage.multiGet([
-          SETTINGS_KEYS.backendUrl,
-          SETTINGS_KEYS.apiToken,
-          SETTINGS_KEYS.controlMode,
-        ]);
-        const settings = Object.fromEntries(values);
-        const savedControlMode = settings[SETTINGS_KEYS.controlMode];
+        const settings = await loadSettings();
 
         if (!isMounted) {
           return;
         }
 
-        setBackendUrl(settings[SETTINGS_KEYS.backendUrl] ?? DEFAULT_BACKEND_URL);
-        setApiToken(settings[SETTINGS_KEYS.apiToken] ?? DEFAULT_API_TOKEN);
-        setControlMode(
-          savedControlMode === 'phone' || savedControlMode === 'pc'
-            ? savedControlMode
-            : DEFAULT_CONTROL_MODE
-        );
+        setBackendUrl(settings.backendUrl);
+        setApiToken(settings.apiToken);
+        setControlMode(settings.controlMode);
       } catch {
         if (isMounted) {
           addHistory('Ustawienia', 'Nie udało się wczytać ustawień.', true);
@@ -338,7 +131,7 @@ export default function HomeScreen() {
       }
     }
 
-    loadSettings();
+    hydrateSettings();
 
     return () => {
       isMounted = false;
@@ -362,20 +155,13 @@ export default function HomeScreen() {
       }
     }
 
-    AsyncStorage.multiSet([
-      [SETTINGS_KEYS.backendUrl, backendUrl],
-      [SETTINGS_KEYS.apiToken, apiToken],
-      [SETTINGS_KEYS.controlMode, controlMode],
-    ]).catch(() => {
+    saveStoredSettings({ backendUrl, apiToken, controlMode }).catch(() => {
       addHistory('Ustawienia', 'Nie udało się zapisać ustawień.', true);
     });
   }, [addHistory, apiToken, backendUrl, controlMode, settingsLoaded]);
 
   useEffect(() => {
-    const baseUrl = trimSlash(backendUrl);
-    const token = apiToken.trim();
-
-    if (!settingsLoaded || !baseUrl || !token) {
+    if (!settingsLoaded || !backendUrl.trim() || !apiToken.trim()) {
       setPcConnectionStatus('brak');
       return;
     }
@@ -390,57 +176,24 @@ export default function HomeScreen() {
       pollingInFlight.current = true;
 
       try {
-        const response = await fetch(`${baseUrl}/phone/pending`, {
-          method: 'GET',
-          headers: {
-            'X-Jarvis-Token': token,
-          },
-        });
+        const result = await getPhonePending(apiConfig);
 
         if (!isMounted) {
           return;
         }
 
-        setPcConnectionStatus('aktywne');
+        setPcConnectionStatus(result.active ? 'aktywne' : 'brak');
 
-        if (!response.ok) {
+        if (
+          result.command?.action !== 'open_mobile_app' ||
+          !result.command.target ||
+          !isMobileAppKey(result.command.target)
+        ) {
           return;
         }
 
-        if (response.status === 204) {
-          return;
-        }
-
-        const text = await response.text();
-
-        if (!text) {
-          return;
-        }
-
-        let pending: PendingPhoneCommand;
-
-        try {
-          pending = JSON.parse(text) as PendingPhoneCommand;
-        } catch {
-          return;
-        }
-
-        if (pending.action !== 'open_mobile_app' || !pending.target) {
-          return;
-        }
-
-        const target = pending.target.toLowerCase();
-
-        if (!isPhoneAppKey(target)) {
-          return;
-        }
-
-        await openPhoneApp(target, false);
-        addHistory('PC', `Komenda z PC: otwieram ${target}`);
-      } catch {
-        if (isMounted) {
-          setPcConnectionStatus('brak');
-        }
+        await openPhoneAppWithHistory(result.command.target, false);
+        addHistory('PC', `Komenda z PC: otwieram ${result.command.target}`);
       } finally {
         pollingInFlight.current = false;
       }
@@ -453,107 +206,50 @@ export default function HomeScreen() {
       isMounted = false;
       clearInterval(intervalId);
     };
-  }, [addHistory, apiToken, backendUrl, openPhoneApp, settingsLoaded]);
+  }, [addHistory, apiConfig, apiToken, backendUrl, openPhoneAppWithHistory, settingsLoaded]);
 
-  async function readNotesPayload(response: Response) {
-    const text = await response.text();
+  const loadNoteDetails = useCallback(
+    async (noteId: string) => {
+      setNotesLoading(true);
+      setNotesStatus('');
 
-    if (!text) {
-      return null;
-    }
-
-    try {
-      return JSON.parse(text) as unknown;
-    } catch {
-      return text;
-    }
-  }
-
-  const requestNotesBackend = useCallback(async (path: string, options?: RequestInit) => {
-    const baseUrl = trimSlash(backendUrl);
-    const token = apiToken.trim();
-    let response: Response;
-
-    if (!baseUrl || !token) {
-      throw new Error('Podaj Backend URL i API Token.');
-    }
-
-    try {
-      response = await fetch(`${baseUrl}${path}`, {
-        ...options,
-        headers: {
-          ...(options?.headers ?? {}),
-          'X-Jarvis-Token': token,
-        },
-      });
-    } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(`Nie można połączyć się z backendem. ${error.message}`);
+      try {
+        const detail = await getNote(apiConfig, noteId);
+        setSelectedNoteId(detail.id);
+        setSelectedNote(detail);
+      } catch (error) {
+        setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
+      } finally {
+        setNotesLoading(false);
       }
+    },
+    [apiConfig]
+  );
 
-      throw new Error('Nie można połączyć się z backendem.');
-    }
+  const loadNotesList = useCallback(
+    async (selectFirst = false) => {
+      setNotesLoading(true);
+      setNotesStatus('');
 
-    const payload = await readNotesPayload(response);
+      try {
+        const nextNotes = await getNotes(apiConfig);
+        setNotes(nextNotes);
 
-    if (response.status === 401 || response.status === 403) {
-      throw new Error('Unauthorized');
-    }
-
-    if (!response.ok) {
-      const detail = isRecord(payload) ? readStringField(payload.detail) : readStringField(payload);
-      throw new Error(detail ? `Błąd: ${detail}` : `Backend zwrócił błąd ${response.status}.`);
-    }
-
-    return payload;
-  }, [apiToken, backendUrl]);
-
-  const loadNoteDetails = useCallback(async (noteId: string) => {
-    setNotesLoading(true);
-    setNotesStatus('');
-
-    try {
-      const payload = await requestNotesBackend(`/notes/${encodeURIComponent(noteId)}`);
-      const detail = normalizeNoteDetail(payload);
-
-      if (!detail) {
-        throw new Error('Nie udało się odczytać notatki.');
+        if (selectFirst && nextNotes.length > 0) {
+          await loadNoteDetails(nextNotes[0].id);
+        } else if (nextNotes.length === 0) {
+          setSelectedNoteId(null);
+          setSelectedNote(null);
+          setNotesStatus('Brak notatek.');
+        }
+      } catch (error) {
+        setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
+      } finally {
+        setNotesLoading(false);
       }
-
-      setSelectedNoteId(detail.id);
-      setSelectedNote(detail);
-    } catch (error) {
-      setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
-    } finally {
-      setNotesLoading(false);
-    }
-  }, [requestNotesBackend]);
-
-  const loadNotesList = useCallback(async (selectFirst = false) => {
-    setNotesLoading(true);
-    setNotesStatus('');
-
-    try {
-      const payload = await requestNotesBackend('/notes');
-      const nextNotes = getNotesArray(payload)
-        .map(normalizeNoteSummary)
-        .filter((note): note is NoteSummary => note !== null);
-
-      setNotes(nextNotes);
-
-      if (selectFirst && nextNotes.length > 0) {
-        await loadNoteDetails(nextNotes[0].id);
-      } else if (nextNotes.length === 0) {
-        setSelectedNoteId(null);
-        setSelectedNote(null);
-        setNotesStatus('Brak notatek.');
-      }
-    } catch (error) {
-      setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
-    } finally {
-      setNotesLoading(false);
-    }
-  }, [loadNoteDetails, requestNotesBackend]);
+    },
+    [apiConfig, loadNoteDetails]
+  );
 
   const createNote = useCallback(async () => {
     const title = newNoteTitle.trim();
@@ -568,13 +264,7 @@ export default function HomeScreen() {
     setNotesStatus('');
 
     try {
-      await requestNotesBackend('/notes', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ title, content }),
-      });
+      await createBackendNote(apiConfig, { title, content });
       setNewNoteTitle('');
       setNewNoteContent('');
       setIsNewNoteOpen(false);
@@ -584,25 +274,26 @@ export default function HomeScreen() {
     } finally {
       setNotesLoading(false);
     }
-  }, [loadNotesList, newNoteContent, newNoteTitle, requestNotesBackend]);
+  }, [apiConfig, loadNotesList, newNoteContent, newNoteTitle]);
 
-  const deleteNote = useCallback(async (noteId: string) => {
-    setNotesLoading(true);
-    setNotesStatus('');
+  const deleteNote = useCallback(
+    async (noteId: string) => {
+      setNotesLoading(true);
+      setNotesStatus('');
 
-    try {
-      await requestNotesBackend(`/notes/${encodeURIComponent(noteId)}`, {
-        method: 'DELETE',
-      });
-      setSelectedNoteId(null);
-      setSelectedNote(null);
-      await loadNotesList(true);
-    } catch (error) {
-      setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
-    } finally {
-      setNotesLoading(false);
-    }
-  }, [loadNotesList, requestNotesBackend]);
+      try {
+        await deleteBackendNote(apiConfig, noteId);
+        setSelectedNoteId(null);
+        setSelectedNote(null);
+        await loadNotesList(true);
+      } catch (error) {
+        setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
+      } finally {
+        setNotesLoading(false);
+      }
+    },
+    [apiConfig, loadNotesList]
+  );
 
   useEffect(() => {
     if (activeTab === 'notes' && settingsLoaded) {
@@ -610,42 +301,11 @@ export default function HomeScreen() {
     }
   }, [activeTab, loadNotesList, notes.length, settingsLoaded]);
 
-  async function requestBackend(path: string, options?: RequestInit) {
-    const baseUrl = trimSlash(backendUrl);
-    let response: Response;
-
-    if (!baseUrl) {
-      throw new Error('Podaj Backend URL.');
-    }
-
-    try {
-      response = await fetch(`${baseUrl}${path}`, options);
-    } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(`Nie można połączyć się z backendem. ${error.message}`);
-      }
-
-      throw new Error('Nie można połączyć się z backendem.');
-    }
-
-    if (response.status === 401 || response.status === 403) {
-      throw new Error('Unauthorized');
-    }
-
-    const detail = await readBackendResponse(response);
-
-    if (!response.ok) {
-      throw new Error(`Backend zwrócił błąd ${response.status}: ${detail}`);
-    }
-
-    return detail;
-  }
-
   async function checkStatus() {
     setLoading(true);
 
     try {
-      const detail = await requestBackend('/status');
+      const detail = await getStatus(apiConfig);
       setBackendStatus('Backend online / LM Studio gotowe');
       addHistory('Status', detail);
     } catch (error) {
@@ -661,11 +321,7 @@ export default function HomeScreen() {
     skipNextSettingsSave.current = true;
 
     try {
-      await AsyncStorage.multiRemove([
-        SETTINGS_KEYS.backendUrl,
-        SETTINGS_KEYS.apiToken,
-        SETTINGS_KEYS.controlMode,
-      ]);
+      await clearStoredSettings();
     } catch {
       skipNextSettingsSave.current = false;
       addHistory('Ustawienia', 'Nie udało się wyczyścić ustawień.', true);
@@ -678,7 +334,7 @@ export default function HomeScreen() {
     addHistory('Ustawienia', 'Ustawienia wyczyszczone.');
   }
 
-  async function sendText(text: string, mode: RequestMode) {
+  async function sendText(text: string, mode: 'chat' | 'command') {
     const cleanText = text.trim();
 
     if (!cleanText) {
@@ -688,14 +344,10 @@ export default function HomeScreen() {
     setLoading(true);
 
     try {
-      const detail = await requestBackend(mode === 'command' ? '/command' : '/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Jarvis-Token': apiToken,
-        },
-        body: JSON.stringify(mode === 'command' ? { command: cleanText } : { message: cleanText }),
-      });
+      const detail =
+        mode === 'command'
+          ? await sendCommand(apiConfig, cleanText)
+          : await sendChat(apiConfig, cleanText);
 
       addHistory(mode === 'command' ? 'Command' : 'Chat', detail);
       setMessage('');
@@ -714,11 +366,11 @@ export default function HomeScreen() {
     const cleanText = message.trim();
 
     if (controlMode === 'phone') {
-      const phoneApp = getPhoneAppFromCommand(cleanText);
+      const phoneApp = getMobileAppFromCommand(cleanText);
 
       if (phoneApp) {
         setMessage('');
-        openPhoneApp(phoneApp);
+        openPhoneAppWithHistory(phoneApp);
         return;
       }
 
@@ -729,13 +381,23 @@ export default function HomeScreen() {
     sendText(cleanText, isCommand(cleanText) ? 'command' : 'chat');
   }
 
-  function sendAppAction(appKey: PhoneAppKey, action: 'otwórz' | 'zamknij') {
+  function sendAppAction(appKey: MobileAppKey, action: 'otwórz' | 'zamknij') {
     if (controlMode === 'phone') {
-      openPhoneApp(appKey);
+      openPhoneAppWithHistory(appKey);
       return;
     }
 
-    sendText(`${action} ${appKey}`, 'command');
+    setLoading(true);
+    toggleApp(apiConfig, appKey, action)
+      .then((detail) => {
+        addHistory('Command', detail);
+      })
+      .catch((error) => {
+        addHistory('Command', error instanceof Error ? error.message : 'Nieznany błąd.', true);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }
 
   return (
@@ -749,41 +411,52 @@ export default function HomeScreen() {
           {loading ? <ActivityIndicator color="#22f2ff" /> : null}
         </View>
 
-        <Pressable onPress={checkStatus} disabled={loading} style={styles.statusPanel}>
-          <Text style={styles.statusLabel}>Backend / LM Studio</Text>
-          <Text selectable style={styles.statusValue}>
-            {backendStatus}
-          </Text>
-          <Text selectable style={styles.pcConnectionValue}>
-            Połączenie z PC: {pcConnectionStatus}
-          </Text>
+        <Pressable onPress={checkStatus} disabled={loading}>
+          <HudPanel style={styles.statusPanel}>
+            <Text style={styles.statusLabel}>Backend / LM Studio</Text>
+            <Text selectable style={styles.statusValue}>
+              {backendStatus}
+            </Text>
+            <StatusBadge
+              label={`Połączenie z PC: ${pcConnectionStatus}`}
+              status={pcConnectionStatus === 'aktywne' ? 'online' : 'offline'}
+            />
+          </HudPanel>
         </Pressable>
 
         <View style={styles.modeSwitch}>
-          <ModeButton
+          <HudButton
             title="Steruj PC"
             active={controlMode === 'pc'}
+            variant="ghost"
             onPress={() => setControlMode('pc')}
+            style={styles.modeButton}
           />
-          <ModeButton
+          <HudButton
             title="Steruj telefonem"
             active={controlMode === 'phone'}
+            variant="ghost"
             onPress={() => setControlMode('phone')}
+            style={styles.modeButton}
           />
         </View>
       </View>
 
       <View style={styles.main}>
-        {activeTab === 'chat' ? <ChatLog history={history} /> : null}
-        {activeTab === 'apps' ? (
-          <AppsPanel
-            controlMode={controlMode}
-            onAction={sendAppAction}
-            loading={loading}
+        {activeTab === 'chat' ? (
+          <ChatScreen
+            history={history}
+            message={message}
+            canSend={canSend}
+            onMessageChange={setMessage}
+            onSend={sendMessage}
           />
         ) : null}
+        {activeTab === 'apps' ? (
+          <AppsScreen controlMode={controlMode} onAction={sendAppAction} loading={loading} />
+        ) : null}
         {activeTab === 'notes' ? (
-          <NotesPanel
+          <NotesScreen
             notes={notes}
             selectedNote={selectedNote}
             selectedNoteId={selectedNoteId}
@@ -802,37 +475,17 @@ export default function HomeScreen() {
           />
         ) : null}
         {activeTab === 'settings' ? (
-          <SettingsPanel
+          <SettingsScreen
             backendUrl={backendUrl}
             apiToken={apiToken}
+            controlMode={controlMode}
             onBackendUrlChange={setBackendUrl}
             onApiTokenChange={setApiToken}
+            onControlModeChange={setControlMode}
             onClearSettings={clearSettings}
           />
         ) : null}
       </View>
-
-      {activeTab === 'chat' ? (
-        <View style={styles.composer}>
-          <TextInput
-            value={message}
-            onChangeText={setMessage}
-            multiline
-            placeholder="Wiadomość albo komenda..."
-            placeholderTextColor="#6e8397"
-            style={styles.messageInput}
-          />
-          <Pressable
-            onPress={sendMessage}
-            disabled={!canSend}
-            style={({ pressed }) => [
-              styles.sendButton,
-              (pressed || !canSend) && styles.buttonPressed,
-            ]}>
-            <Text style={styles.sendButtonText}>Wyślij</Text>
-          </Pressable>
-        </View>
-      ) : null}
 
       <View style={styles.bottomNav}>
         <NavButton title="Chat" active={activeTab === 'chat'} onPress={() => setActiveTab('chat')} />
@@ -856,284 +509,6 @@ export default function HomeScreen() {
   );
 }
 
-type ChatLogProps = {
-  history: HistoryItem[];
-};
-
-function ChatLog({ history }: ChatLogProps) {
-  return (
-    <ScrollView
-      style={styles.panelScroll}
-      contentContainerStyle={styles.logContent}
-      contentInsetAdjustmentBehavior="automatic">
-      {history.length === 0 ? (
-        <View style={styles.emptyLog}>
-          <Text style={styles.emptyTitle}>System log gotowy</Text>
-          <Text selectable style={styles.emptyText}>
-            Sprawdź status backendu albo wyślij wiadomość do Jarvisa.
-          </Text>
-        </View>
-      ) : (
-        history.map((item) => (
-          <View key={item.id} style={[styles.logItem, item.isError && styles.errorItem]}>
-            <Text style={[styles.logTitle, item.isError && styles.errorText]}>{item.title}</Text>
-            <Text selectable style={styles.logDetail}>
-              {item.detail}
-            </Text>
-          </View>
-        ))
-      )}
-    </ScrollView>
-  );
-}
-
-type AppsPanelProps = {
-  controlMode: ControlMode;
-  loading: boolean;
-  onAction: (appKey: PhoneAppKey, action: 'otwórz' | 'zamknij') => void;
-};
-
-function AppsPanel({ controlMode, loading, onAction }: AppsPanelProps) {
-  return (
-    <ScrollView style={styles.panelScroll} contentContainerStyle={styles.appsContent}>
-      {APP_KEYS.map((appKey) => {
-        const app = PHONE_APPS[appKey];
-
-        return (
-          <View key={appKey} style={styles.appTile}>
-            <View>
-              <Text style={styles.appName}>{app.label}</Text>
-              <Text style={styles.appMode}>
-                {controlMode === 'pc' ? 'Backend PC' : 'Telefon lokalnie'}
-              </Text>
-            </View>
-
-            <View style={styles.appActions}>
-              <Pressable
-                onPress={() => onAction(appKey, 'otwórz')}
-                disabled={loading}
-                style={({ pressed }) => [
-                  styles.appActionPrimary,
-                  (pressed || loading) && styles.buttonPressed,
-                ]}>
-                <Text style={styles.appActionPrimaryText}>Otwórz</Text>
-              </Pressable>
-
-              {controlMode === 'pc' ? (
-                <Pressable
-                  onPress={() => onAction(appKey, 'zamknij')}
-                  disabled={loading}
-                  style={({ pressed }) => [
-                    styles.appActionSecondary,
-                    (pressed || loading) && styles.buttonPressed,
-                  ]}>
-                  <Text style={styles.appActionSecondaryText}>Zamknij</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-        );
-      })}
-    </ScrollView>
-  );
-}
-
-type NotesPanelProps = {
-  notes: NoteSummary[];
-  selectedNote: NoteDetail | null;
-  selectedNoteId: string | null;
-  notesStatus: string;
-  notesLoading: boolean;
-  newNoteTitle: string;
-  newNoteContent: string;
-  isNewNoteOpen: boolean;
-  onRefresh: () => void;
-  onSelectNote: (noteId: string) => void;
-  onDeleteNote: (noteId: string) => void;
-  onCreateNote: () => void;
-  onNewNoteTitleChange: (value: string) => void;
-  onNewNoteContentChange: (value: string) => void;
-  onToggleNewNote: () => void;
-};
-
-function NotesPanel({
-  notes,
-  selectedNote,
-  selectedNoteId,
-  notesStatus,
-  notesLoading,
-  newNoteTitle,
-  newNoteContent,
-  isNewNoteOpen,
-  onRefresh,
-  onSelectNote,
-  onDeleteNote,
-  onCreateNote,
-  onNewNoteTitleChange,
-  onNewNoteContentChange,
-  onToggleNewNote,
-}: NotesPanelProps) {
-  return (
-    <ScrollView style={styles.panelScroll} contentContainerStyle={styles.notesContent}>
-      <View style={styles.notesToolbar}>
-        <Pressable onPress={onToggleNewNote} style={styles.notePrimaryButton}>
-          <Text style={styles.notePrimaryButtonText}>Nowa notatka</Text>
-        </Pressable>
-        <Pressable onPress={onRefresh} style={styles.noteSecondaryButton}>
-          <Text style={styles.noteSecondaryButtonText}>Odśwież</Text>
-        </Pressable>
-      </View>
-
-      {isNewNoteOpen ? (
-        <View style={styles.noteEditor}>
-          <Text style={styles.sectionTitle}>Nowa notatka</Text>
-          <TextInput
-            value={newNoteTitle}
-            onChangeText={onNewNoteTitleChange}
-            placeholder="Tytuł"
-            placeholderTextColor="#6e8397"
-            style={styles.input}
-          />
-          <TextInput
-            value={newNoteContent}
-            onChangeText={onNewNoteContentChange}
-            multiline
-            placeholder="Treść"
-            placeholderTextColor="#6e8397"
-            style={[styles.input, styles.noteContentInput]}
-          />
-          <Pressable
-            onPress={onCreateNote}
-            disabled={notesLoading}
-            style={({ pressed }) => [
-              styles.notePrimaryButton,
-              (pressed || notesLoading) && styles.buttonPressed,
-            ]}>
-            <Text style={styles.notePrimaryButtonText}>Zapisz notatkę</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-      {notesStatus ? (
-        <Text selectable style={styles.notesStatus}>
-          {notesStatus}
-        </Text>
-      ) : null}
-
-      {notesLoading ? <ActivityIndicator color="#22f2ff" /> : null}
-
-      <View style={styles.noteList}>
-        {notes.map((note) => (
-          <Pressable
-            key={note.id}
-            onPress={() => onSelectNote(note.id)}
-            style={[styles.noteRow, selectedNoteId === note.id && styles.noteRowActive]}>
-            <Text style={styles.noteTitle}>{note.title}</Text>
-            <Text selectable style={styles.noteDate}>
-              {note.createdAt}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {selectedNote ? (
-        <View style={styles.notePreview}>
-          <Text style={styles.sectionTitle}>{selectedNote.title}</Text>
-          <Text selectable style={styles.noteDate}>
-            {selectedNote.createdAt}
-          </Text>
-          <Text selectable style={styles.noteBody}>
-            {selectedNote.content}
-          </Text>
-          <Pressable
-            onPress={() => onDeleteNote(selectedNote.id)}
-            disabled={notesLoading}
-            style={({ pressed }) => [
-              styles.noteDeleteButton,
-              (pressed || notesLoading) && styles.buttonPressed,
-            ]}>
-            <Text style={styles.noteDeleteButtonText}>Usuń</Text>
-          </Pressable>
-        </View>
-      ) : null}
-    </ScrollView>
-  );
-}
-
-type SettingsPanelProps = {
-  backendUrl: string;
-  apiToken: string;
-  onBackendUrlChange: (value: string) => void;
-  onApiTokenChange: (value: string) => void;
-  onClearSettings: () => void;
-};
-
-function SettingsPanel({
-  backendUrl,
-  apiToken,
-  onBackendUrlChange,
-  onApiTokenChange,
-  onClearSettings,
-}: SettingsPanelProps) {
-  return (
-    <ScrollView style={styles.panelScroll} contentContainerStyle={styles.settingsContent}>
-      <Text style={styles.sectionTitle}>Ustawienia</Text>
-
-      <View style={styles.fieldGroup}>
-        <Text style={styles.label}>Backend URL</Text>
-        <TextInput
-          value={backendUrl}
-          onChangeText={onBackendUrlChange}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="url"
-          placeholder="http://192.168.68.50:8000"
-          placeholderTextColor="#6e8397"
-          style={styles.input}
-        />
-      </View>
-
-      <View style={styles.fieldGroup}>
-        <Text style={styles.label}>API Token</Text>
-        <TextInput
-          value={apiToken}
-          onChangeText={onApiTokenChange}
-          autoCapitalize="none"
-          autoCorrect={false}
-          secureTextEntry
-          placeholder="X-Jarvis-Token"
-          placeholderTextColor="#6e8397"
-          style={styles.input}
-        />
-      </View>
-
-      <Pressable onPress={onClearSettings} style={styles.clearButton}>
-        <Text style={styles.clearButtonText}>Wyczyść ustawienia</Text>
-      </Pressable>
-    </ScrollView>
-  );
-}
-
-type ModeButtonProps = {
-  title: string;
-  active: boolean;
-  onPress: () => void;
-};
-
-function ModeButton({ title, active, onPress }: ModeButtonProps) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.modeButton,
-        active && styles.modeButtonActive,
-        pressed && styles.buttonPressed,
-      ]}>
-      <Text style={[styles.modeButtonText, active && styles.modeButtonTextActive]}>{title}</Text>
-    </Pressable>
-  );
-}
-
 type NavButtonProps = {
   title: string;
   active: boolean;
@@ -1142,15 +517,13 @@ type NavButtonProps = {
 
 function NavButton({ title, active, onPress }: NavButtonProps) {
   return (
-    <Pressable
+    <HudButton
+      title={title}
+      active={active}
+      variant="ghost"
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.navButton,
-        active && styles.navButtonActive,
-        pressed && styles.buttonPressed,
-      ]}>
-      <Text style={[styles.navButtonText, active && styles.navButtonTextActive]}>{title}</Text>
-    </Pressable>
+      style={styles.navButton}
+    />
   );
 }
 
@@ -1188,11 +561,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   statusPanel: {
-    gap: 4,
-    borderWidth: 1,
-    borderColor: '#1e6f9b',
-    borderRadius: 8,
-    backgroundColor: '#081322',
+    gap: 8,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
@@ -1206,12 +575,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
   },
-  pcConnectionValue: {
-    color: '#9b7cff',
-    fontSize: 14,
-    fontWeight: '800',
-    lineHeight: 20,
-  },
   modeSwitch: {
     flexDirection: 'row',
     gap: 8,
@@ -1222,327 +585,11 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   modeButton: {
-    minHeight: 46,
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-  },
-  modeButtonActive: {
-    backgroundColor: '#22f2ff',
-  },
-  modeButtonText: {
-    color: '#9ab2ca',
-    fontSize: 15,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  modeButtonTextActive: {
-    color: '#03101a',
   },
   main: {
     flex: 1,
     backgroundColor: '#05070d',
-  },
-  panelScroll: {
-    flex: 1,
-  },
-  logContent: {
-    gap: 14,
-    padding: 18,
-    paddingBottom: 24,
-  },
-  emptyLog: {
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#173559',
-    borderRadius: 8,
-    backgroundColor: '#081322',
-    padding: 18,
-  },
-  emptyTitle: {
-    color: '#f2fbff',
-    fontSize: 20,
-    fontWeight: '900',
-  },
-  emptyText: {
-    color: '#9ab2ca',
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  logItem: {
-    gap: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: '#22f2ff',
-    borderRadius: 8,
-    backgroundColor: '#081322',
-    padding: 16,
-  },
-  errorItem: {
-    borderLeftColor: '#ff5b8a',
-    backgroundColor: '#1b0815',
-  },
-  logTitle: {
-    color: '#22f2ff',
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  logDetail: {
-    color: '#d8edf4',
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  errorText: {
-    color: '#ff8eb0',
-  },
-  appsContent: {
-    gap: 16,
-    padding: 18,
-    paddingBottom: 26,
-  },
-  appTile: {
-    gap: 16,
-    borderWidth: 1,
-    borderColor: '#1e3569',
-    borderRadius: 8,
-    backgroundColor: '#081322',
-    padding: 18,
-  },
-  appName: {
-    color: '#f2fbff',
-    fontSize: 24,
-    fontWeight: '900',
-  },
-  appMode: {
-    color: '#9ab2ca',
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  appActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  appActionPrimary: {
-    minHeight: 54,
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    backgroundColor: '#22f2ff',
-  },
-  appActionPrimaryText: {
-    color: '#03101a',
-    fontSize: 17,
-    fontWeight: '900',
-  },
-  appActionSecondary: {
-    minHeight: 54,
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#9b7cff',
-    borderRadius: 8,
-    backgroundColor: '#110d28',
-  },
-  appActionSecondaryText: {
-    color: '#dbcfff',
-    fontSize: 17,
-    fontWeight: '900',
-  },
-  notesContent: {
-    gap: 18,
-    padding: 18,
-    paddingBottom: 26,
-  },
-  notesToolbar: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  notePrimaryButton: {
-    minHeight: 54,
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    backgroundColor: '#22f2ff',
-    paddingHorizontal: 14,
-  },
-  notePrimaryButtonText: {
-    color: '#03101a',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  noteSecondaryButton: {
-    minHeight: 54,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#9b7cff',
-    borderRadius: 8,
-    backgroundColor: '#110d28',
-    paddingHorizontal: 16,
-  },
-  noteSecondaryButtonText: {
-    color: '#dbcfff',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  noteEditor: {
-    gap: 12,
-    borderWidth: 1,
-    borderColor: '#1e3569',
-    borderRadius: 8,
-    backgroundColor: '#081322',
-    padding: 16,
-  },
-  noteContentInput: {
-    minHeight: 132,
-    textAlignVertical: 'top',
-  },
-  notesStatus: {
-    color: '#9ab2ca',
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  noteList: {
-    gap: 12,
-  },
-  noteRow: {
-    minHeight: 72,
-    gap: 6,
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#1e3569',
-    borderRadius: 8,
-    backgroundColor: '#081322',
-    paddingHorizontal: 16,
-  },
-  noteRowActive: {
-    borderColor: '#22f2ff',
-    backgroundColor: '#0a1b30',
-  },
-  noteTitle: {
-    color: '#f2fbff',
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  noteDate: {
-    color: '#9ab2ca',
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  notePreview: {
-    gap: 12,
-    borderWidth: 1,
-    borderColor: '#2c1f70',
-    borderRadius: 8,
-    backgroundColor: '#0d0a22',
-    padding: 18,
-  },
-  sectionTitle: {
-    color: '#f2fbff',
-    fontSize: 22,
-    fontWeight: '900',
-  },
-  noteBody: {
-    color: '#d8edf4',
-    fontSize: 17,
-    lineHeight: 26,
-  },
-  noteDeleteButton: {
-    minHeight: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#ff5b8a',
-    borderRadius: 8,
-    backgroundColor: '#1b0815',
-    paddingHorizontal: 14,
-  },
-  noteDeleteButtonText: {
-    color: '#ffc0d0',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  settingsContent: {
-    gap: 18,
-    padding: 18,
-    paddingBottom: 26,
-  },
-  fieldGroup: {
-    gap: 10,
-  },
-  label: {
-    color: '#9fefff',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  input: {
-    minHeight: 54,
-    borderWidth: 1,
-    borderColor: '#1e6f9b',
-    borderRadius: 8,
-    backgroundColor: '#081322',
-    color: '#f2fbff',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 17,
-  },
-  clearButton: {
-    minHeight: 54,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#ff5b8a',
-    borderRadius: 8,
-    backgroundColor: '#1b0815',
-    paddingHorizontal: 14,
-  },
-  clearButtonText: {
-    color: '#ffc0d0',
-    fontSize: 17,
-    fontWeight: '900',
-  },
-  composer: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-end',
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#151d35',
-    backgroundColor: '#05070d',
-  },
-  messageInput: {
-    minHeight: 54,
-    maxHeight: 116,
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#1e6f9b',
-    borderRadius: 8,
-    backgroundColor: '#081322',
-    color: '#f2fbff',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 17,
-    textAlignVertical: 'top',
-  },
-  sendButton: {
-    minHeight: 54,
-    minWidth: 92,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    backgroundColor: '#22f2ff',
-    paddingHorizontal: 16,
-  },
-  sendButtonText: {
-    color: '#03101a',
-    fontSize: 17,
-    fontWeight: '900',
   },
   bottomNav: {
     flexDirection: 'row',
@@ -1557,24 +604,6 @@ const styles = StyleSheet.create({
   navButton: {
     minHeight: 52,
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
     paddingHorizontal: 4,
-  },
-  navButtonActive: {
-    backgroundColor: '#121a36',
-  },
-  navButtonText: {
-    color: '#7e91a8',
-    fontSize: 13,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  navButtonTextActive: {
-    color: '#22f2ff',
-  },
-  buttonPressed: {
-    opacity: 0.55,
   },
 });
