@@ -12,8 +12,7 @@ import {
   getNotes,
   getPhonePending,
   getStatus,
-  sendChat,
-  sendCommand,
+  sendProcessText,
   toggleApp,
   type ApiConfig,
   type HistoryItem,
@@ -32,6 +31,7 @@ import {
   DEFAULT_API_TOKEN,
   DEFAULT_BACKEND_URL,
   DEFAULT_CONTROL_MODE,
+  DEFAULT_DEVICE_ID,
   loadSettings,
   saveSettings as saveStoredSettings,
   type ControlMode,
@@ -41,19 +41,12 @@ import { ChatScreen } from '@/screens/ChatScreen';
 import { NotesScreen } from '@/screens/NotesScreen';
 import { SettingsScreen } from '@/screens/SettingsScreen';
 
-const COMMAND_PREFIXES = ['otwórz', 'zamknij', 'puść', 'znajdź na spotify'];
-
 type AppTab = 'chat' | 'apps' | 'notes' | 'settings';
-
-function isCommand(text: string) {
-  const normalized = text.trim().toLowerCase();
-
-  return COMMAND_PREFIXES.some((prefix) => normalized.startsWith(prefix));
-}
 
 export default function HomeScreen() {
   const [backendUrl, setBackendUrl] = useState(DEFAULT_BACKEND_URL);
   const [apiToken, setApiToken] = useState(DEFAULT_API_TOKEN);
+  const [deviceId, setDeviceId] = useState(DEFAULT_DEVICE_ID);
   const [controlMode, setControlMode] = useState<ControlMode>(DEFAULT_CONTROL_MODE);
   const [message, setMessage] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -75,7 +68,10 @@ export default function HomeScreen() {
   const lastRecognizedText = useRef('');
   const speech = useSpeechRecognition();
 
-  const apiConfig = useMemo<ApiConfig>(() => ({ backendUrl, apiToken }), [apiToken, backendUrl]);
+  const apiConfig = useMemo<ApiConfig>(
+    () => ({ backendUrl, apiToken, deviceId }),
+    [apiToken, backendUrl, deviceId]
+  );
   const canSend = useMemo(() => message.trim().length > 0 && !loading, [loading, message]);
   const voiceStatus = useMemo(() => {
     if (speech.isListening) {
@@ -137,6 +133,7 @@ export default function HomeScreen() {
 
         setBackendUrl(settings.backendUrl);
         setApiToken(settings.apiToken);
+        setDeviceId(settings.deviceId);
         setControlMode(settings.controlMode);
       } catch {
         if (isMounted) {
@@ -167,16 +164,17 @@ export default function HomeScreen() {
       if (
         backendUrl === DEFAULT_BACKEND_URL &&
         apiToken === DEFAULT_API_TOKEN &&
+        deviceId === DEFAULT_DEVICE_ID &&
         controlMode === DEFAULT_CONTROL_MODE
       ) {
         return;
       }
     }
 
-    saveStoredSettings({ backendUrl, apiToken, controlMode }).catch(() => {
+    saveStoredSettings({ backendUrl, apiToken, deviceId, controlMode }).catch(() => {
       addHistory('Ustawienia', 'Nie udało się zapisać ustawień.', true);
     });
-  }, [addHistory, apiToken, backendUrl, controlMode, settingsLoaded]);
+  }, [addHistory, apiToken, backendUrl, controlMode, deviceId, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded || !backendUrl.trim() || !apiToken.trim()) {
@@ -359,11 +357,12 @@ export default function HomeScreen() {
 
     setBackendUrl(DEFAULT_BACKEND_URL);
     setApiToken(DEFAULT_API_TOKEN);
+    setDeviceId(DEFAULT_DEVICE_ID);
     setControlMode(DEFAULT_CONTROL_MODE);
     addHistory('Ustawienia', 'Ustawienia wyczyszczone.');
   }
 
-  async function sendText(text: string, mode: 'chat' | 'command') {
+  async function sendText(text: string) {
     const cleanText = text.trim();
 
     if (!cleanText) {
@@ -373,16 +372,13 @@ export default function HomeScreen() {
     setLoading(true);
 
     try {
-      const detail =
-        mode === 'command'
-          ? await sendCommand(apiConfig, cleanText)
-          : await sendChat(apiConfig, cleanText);
+      const detail = await sendProcessText(apiConfig, cleanText);
 
-      addHistory(mode === 'command' ? 'Command' : 'Chat', detail);
+      addHistory('Jarvis', detail);
       setMessage('');
     } catch (error) {
       addHistory(
-        mode === 'command' ? 'Command' : 'Chat',
+        'Jarvis',
         error instanceof Error ? error.message : 'Nieznany błąd.',
         true
       );
@@ -403,11 +399,11 @@ export default function HomeScreen() {
         return;
       }
 
-      sendText(cleanText, 'chat');
+      sendText(cleanText);
       return;
     }
 
-    sendText(cleanText, isCommand(cleanText) ? 'command' : 'chat');
+    sendText(cleanText);
   }
 
   function sendAppAction(appKey: MobileAppKey, action: 'otwórz' | 'zamknij') {
@@ -511,9 +507,11 @@ export default function HomeScreen() {
           <SettingsScreen
             backendUrl={backendUrl}
             apiToken={apiToken}
+            deviceId={deviceId}
             controlMode={controlMode}
             onBackendUrlChange={setBackendUrl}
             onApiTokenChange={setApiToken}
+            onDeviceIdChange={setDeviceId}
             onControlModeChange={setControlMode}
             onClearSettings={clearSettings}
           />

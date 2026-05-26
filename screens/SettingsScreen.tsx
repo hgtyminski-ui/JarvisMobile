@@ -6,9 +6,11 @@ import type { ControlMode } from '@/services/storage';
 type SettingsScreenProps = {
   backendUrl: string;
   apiToken: string;
+  deviceId: string;
   controlMode: ControlMode;
   onBackendUrlChange: (value: string) => void;
   onApiTokenChange: (value: string) => void;
+  onDeviceIdChange: (value: string) => void;
   onControlModeChange: (value: ControlMode) => void;
   onClearSettings: () => void;
 };
@@ -16,9 +18,11 @@ type SettingsScreenProps = {
 export function SettingsScreen({
   backendUrl,
   apiToken,
+  deviceId,
   controlMode,
   onBackendUrlChange,
   onApiTokenChange,
+  onDeviceIdChange,
   onControlModeChange,
   onClearSettings,
 }: SettingsScreenProps) {
@@ -49,6 +53,19 @@ export function SettingsScreen({
           autoCorrect={false}
           secureTextEntry
           placeholder="X-Jarvis-Token"
+          placeholderTextColor="#6e8397"
+          style={styles.input}
+        />
+      </View>
+
+      <View style={styles.fieldGroup}>
+        <Text style={styles.label}>Device ID</Text>
+        <TextInput
+          value={deviceId}
+          onChangeText={onDeviceIdChange}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="hubert-pc"
           placeholderTextColor="#6e8397"
           style={styles.input}
         />

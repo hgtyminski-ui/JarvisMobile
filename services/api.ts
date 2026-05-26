@@ -3,6 +3,7 @@ import type { JarvisSettings } from './storage';
 export type ApiConfig = {
   backendUrl: string;
   apiToken: string;
+  deviceId: string;
 };
 
 export type HistoryItem = {
@@ -98,11 +99,16 @@ export async function parseApiResponse(response: Response) {
   if (isRecord(payload)) {
     const responseValue = readJsonValue(payload.response);
     const detailValue = readJsonValue(payload.detail);
+    const statusValue = readStringField(payload.status).toLowerCase();
 
     if (responseValue) {
       message = responseValue;
     } else if (detailValue) {
       message = detailValue;
+    }
+
+    if (statusValue === 'error') {
+      throw new Error(message || 'Błąd backendu');
     }
   } else if (payload !== null) {
     message = readStringField(payload) || 'OK';
@@ -132,11 +138,7 @@ async function requestMessage(config: ApiConfig, path: string, options?: Request
     throw new Error('Unauthorized');
   }
 
-  try {
-    return await parseApiResponse(response);
-  } catch {
-    throw new Error(`Błąd backendu: ${response.status}`);
-  }
+  return parseApiResponse(response);
 }
 
 async function requestJson(config: ApiConfig, path: string, options?: RequestInit) {
@@ -270,12 +272,26 @@ export async function sendCommand(config: ApiConfig, command: string) {
   });
 }
 
+export async function sendProcessText(config: ApiConfig, text: string) {
+  return requestMessage(config, '/process-text', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Jarvis-Token': config.apiToken,
+    },
+    body: JSON.stringify({
+      text,
+      device_id: config.deviceId.trim() || 'hubert-pc',
+    }),
+  });
+}
+
 export async function getApps(config: ApiConfig) {
   return requestJson(config, '/apps');
 }
 
 export async function toggleApp(config: ApiConfig, target: string, action: AppAction) {
-  return sendCommand(config, `${action} ${target}`);
+  return sendProcessText(config, `${action} ${target}`);
 }
 
 export async function getNotes(config: ApiConfig) {
