@@ -10,11 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.jarvis.mobile",
-      "infoPlist": {
-        "NSMicrophoneUsageDescription": "Jarvis Mobile needs microphone access for voice commands.",
-        "NSSpeechRecognitionUsageDescription": "Jarvis Mobile uses speech recognition to turn your voice into commands."
-      }
+      "bundleIdentifier": "com.jarvis.mobile"
     },
     "android": {
       "package": "com.jarvis.mobile",
@@ -25,10 +21,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "permissions": [
-        "android.permission.RECORD_AUDIO"
-      ]
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
