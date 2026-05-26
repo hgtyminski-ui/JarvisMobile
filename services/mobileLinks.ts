@@ -38,7 +38,15 @@ export const MOBILE_APPS = {
   },
 };
 
-export const APP_KEYS = ['spotify', 'youtube', 'netflix', 'steam', 'discord', 'whatsapp', 'teams'] as const;
+export const APP_KEYS = [
+  'spotify',
+  'youtube',
+  'netflix',
+  'steam',
+  'discord',
+  'whatsapp',
+  'teams',
+] as const;
 
 export type MobileAppKey = keyof typeof MOBILE_APPS;
 
@@ -47,19 +55,21 @@ export type OpenMobileAppResult = {
   usedFallback: boolean;
 };
 
+const OPEN_COMMAND_PREFIXES = ['open', 'otw\u00f3rz', 'otworz', 'uruchom', 'odpal'];
+
 export function isMobileAppKey(value: string): value is MobileAppKey {
   return value in MOBILE_APPS;
 }
 
 export function getMobileAppFromCommand(text: string) {
   const normalized = text.trim().toLowerCase();
-  const match = normalized.match(/^otwórz\s+(.+)$/);
+  const prefix = OPEN_COMMAND_PREFIXES.find((command) => normalized.startsWith(`${command} `));
 
-  if (!match) {
+  if (!prefix) {
     return null;
   }
 
-  const appName = match[1].trim();
+  const appName = normalized.slice(prefix.length).trim();
 
   return isMobileAppKey(appName) ? appName : null;
 }
