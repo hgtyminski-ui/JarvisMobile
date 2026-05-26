@@ -8,6 +8,7 @@ import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import {
   createNote as createBackendNote,
   deleteNote as deleteBackendNote,
+  getAgents,
   getNote,
   getNotes,
   getPhonePending,
@@ -42,6 +43,45 @@ import { NotesScreen } from '@/screens/NotesScreen';
 import { SettingsScreen } from '@/screens/SettingsScreen';
 
 type AppTab = 'chat' | 'apps' | 'notes' | 'settings';
+type AgentStatus = 'online' | 'offline' | 'unknown';
+
+function agentsPayloadContainsDevice(value: unknown, targetDeviceId: string): boolean {
+  if (!targetDeviceId) {
+    return false;
+  }
+
+  if (typeof value === 'string') {
+    return value === targetDeviceId;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => agentsPayloadContainsDevice(item, targetDeviceId));
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    const record = value as Record<string, unknown>;
+
+    if (Object.prototype.hasOwnProperty.call(record, targetDeviceId)) {
+      return true;
+    }
+
+    return Object.values(record).some((item) => agentsPayloadContainsDevice(item, targetDeviceId));
+  }
+
+  return false;
+}
+
+function formatAgentStatus(status: AgentStatus) {
+  if (status === 'online') {
+    return 'Online';
+  }
+
+  if (status === 'offline') {
+    return 'Offline';
+  }
+
+  return 'Brak danych';
+}
 
 export default function HomeScreen() {
   const [backendUrl, setBackendUrl] = useState(DEFAULT_BACKEND_URL);
@@ -55,6 +95,7 @@ export default function HomeScreen() {
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
   const [backendStatus, setBackendStatus] = useState('Nie sprawdzono');
   const [pcConnectionStatus, setPcConnectionStatus] = useState<'aktywne' | 'brak'>('brak');
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>('unknown');
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [selectedNote, setSelectedNote] = useState<NoteDetail | null>(null);
@@ -65,6 +106,7 @@ export default function HomeScreen() {
   const [isNewNoteOpen, setIsNewNoteOpen] = useState(false);
   const skipNextSettingsSave = useRef(false);
   const pollingInFlight = useRef(false);
+  const agentsStatusInFlight = useRef(false);
   const lastRecognizedText = useRef('');
   const speech = useSpeechRecognition();
 
@@ -119,6 +161,30 @@ export default function HomeScreen() {
     },
     [addHistory]
   );
+
+  const refreshAgentsStatus = useCallback(async () => {
+    const cleanDeviceId = deviceId.trim();
+
+    if (!settingsLoaded || !backendUrl.trim() || !apiToken.trim() || !cleanDeviceId) {
+      setAgentStatus('unknown');
+      return;
+    }
+
+    if (agentsStatusInFlight.current) {
+      return;
+    }
+
+    agentsStatusInFlight.current = true;
+
+    try {
+      const agents = await getAgents(apiConfig);
+      setAgentStatus(agentsPayloadContainsDevice(agents, cleanDeviceId) ? 'online' : 'offline');
+    } catch {
+      setAgentStatus('unknown');
+    } finally {
+      agentsStatusInFlight.current = false;
+    }
+  }, [apiConfig, apiToken, backendUrl, deviceId, settingsLoaded]);
 
   useEffect(() => {
     let isMounted = true;
@@ -175,6 +241,16 @@ export default function HomeScreen() {
       addHistory('Ustawienia', 'Nie udało się zapisać ustawień.', true);
     });
   }, [addHistory, apiToken, backendUrl, controlMode, deviceId, settingsLoaded]);
+
+  useEffect(() => {
+    refreshAgentsStatus();
+
+    const intervalId = setInterval(refreshAgentsStatus, 5000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [refreshAgentsStatus]);
 
   useEffect(() => {
     if (!settingsLoaded || !backendUrl.trim() || !apiToken.trim()) {
@@ -340,6 +416,7 @@ export default function HomeScreen() {
       setBackendStatus(detail === 'Unauthorized' ? 'Unauthorized' : 'Backend offline');
       addHistory('Status', detail, true);
     } finally {
+      refreshAgentsStatus();
       setLoading(false);
     }
   }
@@ -383,6 +460,7 @@ export default function HomeScreen() {
         true
       );
     } finally {
+      refreshAgentsStatus();
       setLoading(false);
     }
   }
@@ -421,6 +499,7 @@ export default function HomeScreen() {
         addHistory('Command', error instanceof Error ? error.message : 'Nieznany błąd.', true);
       })
       .finally(() => {
+        refreshAgentsStatus();
         setLoading(false);
       });
   }
@@ -446,6 +525,19 @@ export default function HomeScreen() {
               label={`Połączenie z PC: ${pcConnectionStatus}`}
               status={pcConnectionStatus === 'aktywne' ? 'online' : 'offline'}
             />
+            <StatusBadge
+              label={`Agent PC: ${formatAgentStatus(agentStatus)}`}
+              status={
+                agentStatus === 'online'
+                  ? 'online'
+                  : agentStatus === 'offline'
+                    ? 'offline'
+                    : 'error'
+              }
+            />
+            <Text selectable style={styles.statusMeta}>
+              Device ID: {deviceId || 'hubert-pc'}
+            </Text>
           </HudPanel>
         </Pressable>
 
@@ -605,6 +697,12 @@ const styles = StyleSheet.create({
     color: '#d9f7ff',
     fontSize: 16,
     lineHeight: 22,
+  },
+  statusMeta: {
+    color: '#9ab2ca',
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
   },
   modeSwitch: {
     flexDirection: 'row',

@@ -290,6 +290,10 @@ export async function getApps(config: ApiConfig) {
   return requestJson(config, '/apps');
 }
 
+export async function getAgents(config: ApiConfig) {
+  return requestJson(config, '/agents');
+}
+
 export async function toggleApp(config: ApiConfig, target: string, action: AppAction) {
   return sendProcessText(config, `${action} ${target}`);
 }
