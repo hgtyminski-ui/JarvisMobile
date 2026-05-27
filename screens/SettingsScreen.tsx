@@ -28,7 +28,7 @@ export function SettingsScreen({
 }: SettingsScreenProps) {
   return (
     <ScrollView style={styles.panelScroll} contentContainerStyle={styles.settingsContent}>
-      <Text style={styles.sectionTitle}>Ustawienia</Text>
+      <Text style={styles.sectionTitle}>USTAWIENIA</Text>
 
       <View style={styles.fieldGroup}>
         <Text style={styles.label}>Backend URL</Text>
@@ -39,7 +39,7 @@ export function SettingsScreen({
           autoCorrect={false}
           keyboardType="url"
           placeholder="http://192.168.68.50:8000"
-          placeholderTextColor="#6e8397"
+          placeholderTextColor="#6f829b"
           style={styles.input}
         />
       </View>
@@ -53,7 +53,7 @@ export function SettingsScreen({
           autoCorrect={false}
           secureTextEntry
           placeholder="X-Jarvis-Token"
-          placeholderTextColor="#6e8397"
+          placeholderTextColor="#6f829b"
           style={styles.input}
         />
       </View>
@@ -66,7 +66,7 @@ export function SettingsScreen({
           autoCapitalize="none"
           autoCorrect={false}
           placeholder="hubert-pc"
-          placeholderTextColor="#6e8397"
+          placeholderTextColor="#6f829b"
           style={styles.input}
         />
       </View>
@@ -98,44 +98,43 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingsContent: {
-    gap: 18,
-    padding: 18,
-    paddingBottom: 26,
+    gap: 16,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 24,
   },
   sectionTitle: {
-    color: '#f2fbff',
-    fontSize: 22,
+    color: '#35e7f5',
+    fontSize: 13,
     fontWeight: '900',
+    letterSpacing: 4,
   },
   fieldGroup: {
-    gap: 10,
+    gap: 8,
   },
   label: {
-    color: '#9fefff',
-    fontSize: 15,
-    fontWeight: '800',
+    color: '#a17dff',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
   input: {
-    minHeight: 54,
+    minHeight: 48,
     borderWidth: 1,
-    borderColor: '#1e6f9b',
-    borderRadius: 8,
-    backgroundColor: '#081322',
-    color: '#f2fbff',
+    borderColor: 'rgba(21, 223, 255, 0.32)',
+    borderRadius: 10,
+    backgroundColor: 'rgba(6, 18, 36, 0.62)',
+    color: '#e9fbff',
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 17,
+    paddingVertical: 10,
+    fontSize: 15,
   },
   modeSwitch: {
     flexDirection: 'row',
-    gap: 8,
-    borderWidth: 1,
-    borderColor: '#182a50',
-    borderRadius: 8,
-    backgroundColor: '#080d1b',
-    padding: 6,
+    gap: 10,
   },
   modeButton: {
     flex: 1,
+    minHeight: 42,
   },
 });

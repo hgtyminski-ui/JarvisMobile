@@ -28,7 +28,11 @@ export function HudButton({
         (pressed || disabled) && styles.pressed,
         style,
       ]}>
-      <Text style={[styles.text, variant === 'primary' && styles.primaryText, active && styles.activeText]}>
+      <Text
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.72}
+        style={[styles.text, variant === 'primary' && styles.primaryText, active && styles.activeText]}>
         {title}
       </Text>
     </Pressable>
@@ -37,44 +41,47 @@ export function HudButton({
 
 const styles = StyleSheet.create({
   button: {
-    minHeight: 52,
+    minHeight: 38,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
-    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingHorizontal: 10,
   },
   primary: {
-    backgroundColor: '#22f2ff',
+    borderColor: 'rgba(36, 199, 214, 0.64)',
+    backgroundColor: 'rgba(3, 136, 156, 0.06)',
   },
   secondary: {
-    borderWidth: 1,
-    borderColor: '#9b7cff',
-    backgroundColor: '#110d28',
+    borderColor: 'rgba(140, 117, 201, 0.58)',
+    backgroundColor: 'rgba(84, 58, 142, 0.08)',
   },
   danger: {
-    borderWidth: 1,
-    borderColor: '#ff5b8a',
-    backgroundColor: '#1b0815',
+    borderColor: 'rgba(205, 73, 115, 0.68)',
+    backgroundColor: 'rgba(120, 28, 58, 0.08)',
   },
   ghost: {
-    backgroundColor: 'transparent',
+    borderColor: 'rgba(36, 199, 214, 0.18)',
+    backgroundColor: 'rgba(6, 18, 36, 0.5)',
   },
   active: {
-    backgroundColor: '#22f2ff',
+    borderColor: 'rgba(36, 199, 214, 0.72)',
+    backgroundColor: 'rgba(36, 199, 214, 0.1)',
   },
   pressed: {
     opacity: 0.55,
   },
   text: {
-    color: '#dbcfff',
-    fontSize: 16,
+    color: '#8d75c9',
+    fontSize: 13,
     fontWeight: '900',
     textAlign: 'center',
+    lineHeight: 16,
   },
   primaryText: {
-    color: '#03101a',
+    color: '#24c7d6',
   },
   activeText: {
-    color: '#03101a',
+    color: '#24c7d6',
   },
 });

@@ -7,9 +7,9 @@ export function HudPanel({ style, ...props }: ViewProps) {
 const styles = StyleSheet.create({
   panel: {
     borderWidth: 1,
-    borderColor: '#1e3569',
-    borderRadius: 8,
-    backgroundColor: '#081322',
-    padding: 18,
+    borderColor: 'rgba(36, 199, 214, 0.26)',
+    borderRadius: 10,
+    backgroundColor: 'rgba(5, 15, 30, 0.7)',
+    padding: 14,
   },
 });

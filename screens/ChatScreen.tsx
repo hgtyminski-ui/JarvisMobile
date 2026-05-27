@@ -1,7 +1,7 @@
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { HudButton } from '@/components/HudButton';
-import { HudPanel } from '@/components/HudPanel';
+import { JarvisRadar } from '@/components/JarvisRadar';
 import type { HistoryItem } from '@/services/api';
 
 type ChatScreenProps = {
@@ -10,6 +10,7 @@ type ChatScreenProps = {
   canSend: boolean;
   voiceStatus: string;
   isListening: boolean;
+  coreStatus: string;
   onMessageChange: (value: string) => void;
   onSend: () => void;
   onPushToTalkStart: () => void;
@@ -22,60 +23,67 @@ export function ChatScreen({
   canSend,
   voiceStatus,
   isListening,
+  coreStatus,
   onMessageChange,
   onSend,
   onPushToTalkStart,
   onPushToTalkEnd,
 }: ChatScreenProps) {
+  const latestItem = history[0];
+  const toastTitle = latestItem?.title ?? (voiceStatus ? 'VOICE' : '');
+  const toastDetail = latestItem?.detail ?? voiceStatus;
+  const isToastError = Boolean(latestItem?.isError);
+
   return (
     <View style={styles.screen}>
       <ScrollView
         style={styles.panelScroll}
         contentContainerStyle={styles.logContent}
         contentInsetAdjustmentBehavior="automatic">
-        {history.length === 0 ? (
-          <HudPanel style={styles.emptyLog}>
-            <Text style={styles.emptyTitle}>System log gotowy</Text>
-            <Text selectable style={styles.emptyText}>
-              Sprawdź status backendu albo wyślij wiadomość do Jarvisa.
-            </Text>
-          </HudPanel>
-        ) : (
-          history.map((item) => (
-            <View key={item.id} style={[styles.logItem, item.isError && styles.errorItem]}>
-              <Text style={[styles.logTitle, item.isError && styles.errorText]}>{item.title}</Text>
-              <Text selectable style={styles.logDetail}>
-                {item.detail}
-              </Text>
-            </View>
-          ))
-        )}
+        <View style={styles.coreSpace}>
+          <JarvisRadar stateLabel={coreStatus} active={isListening || history.length > 0} />
+        </View>
       </ScrollView>
 
-      <View style={styles.composer}>
-        <View style={styles.voiceColumn}>
-          <HudButton
-            title="PTT"
-            variant={isListening ? 'primary' : 'secondary'}
-            onPressIn={onPushToTalkStart}
-            onPressOut={onPushToTalkEnd}
-            style={styles.voiceButton}
-          />
-          {voiceStatus ? (
-            <Text selectable style={styles.voiceStatus}>
-              {voiceStatus}
-            </Text>
-          ) : null}
+      {toastDetail ? (
+        <View style={[styles.toast, isToastError && styles.errorToast]}>
+          <Text style={[styles.toastTitle, isToastError && styles.errorText]} numberOfLines={1}>
+            {toastTitle}
+          </Text>
+          <Text selectable style={styles.toastDetail} numberOfLines={2}>
+            {toastDetail}
+          </Text>
         </View>
+      ) : null}
+
+      <View style={styles.composer}>
+        <Pressable
+          onPressIn={onPushToTalkStart}
+          onPressOut={onPushToTalkEnd}
+          style={({ pressed }) => [
+            styles.voiceButton,
+            isListening && styles.voiceButtonActive,
+            pressed && styles.pressed,
+          ]}>
+          <Feather name="mic" size={21} color={isListening ? '#24c7d6' : '#8d75c9'} />
+        </Pressable>
+
         <TextInput
           value={message}
           onChangeText={onMessageChange}
           multiline
-          placeholder="Wiadomość albo komenda..."
-          placeholderTextColor="#6e8397"
+          placeholder="Wiadomość lub komenda..."
+          placeholderTextColor="#6f829b"
           style={styles.messageInput}
         />
-        <HudButton title="Wyślij" onPress={onSend} disabled={!canSend} style={styles.sendButton} />
+
+        <Pressable
+          onPress={onSend}
+          disabled={!canSend}
+          style={({ pressed }) => [styles.sendButton, (pressed || !canSend) && styles.pressed]}>
+          <Feather name="send" size={19} color="#24c7d6" />
+          <Text style={styles.sendText}>WYŚLIJ</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -89,87 +97,102 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   logContent: {
-    gap: 14,
-    padding: 18,
-    paddingBottom: 24,
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 8,
   },
-  emptyLog: {
-    gap: 10,
+  coreSpace: {
+    minHeight: 342,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  emptyTitle: {
-    color: '#f2fbff',
-    fontSize: 20,
-    fontWeight: '900',
+  toast: {
+    minHeight: 28,
+    maxHeight: 42,
+    gap: 2,
+    marginHorizontal: 34,
+    marginBottom: 6,
+    borderLeftWidth: 2,
+    borderLeftColor: 'rgba(36, 199, 214, 0.56)',
+    backgroundColor: 'rgba(6, 18, 36, 0.34)',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
   },
-  emptyText: {
-    color: '#9ab2ca',
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  logItem: {
-    gap: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: '#22f2ff',
-    borderRadius: 8,
-    backgroundColor: '#081322',
-    padding: 16,
-  },
-  errorItem: {
+  errorToast: {
     borderLeftColor: '#ff5b8a',
-    backgroundColor: '#1b0815',
+    backgroundColor: 'rgba(27, 8, 21, 0.28)',
   },
-  logTitle: {
-    color: '#22f2ff',
-    fontSize: 15,
+  toastTitle: {
+    color: '#24c7d6',
+    fontSize: 9,
     fontWeight: '900',
+    letterSpacing: 1,
   },
-  logDetail: {
+  toastDetail: {
     color: '#d8edf4',
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 11,
+    lineHeight: 14,
   },
   errorText: {
     color: '#ff8eb0',
   },
   composer: {
     flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-end',
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#151d35',
-    backgroundColor: '#05070d',
-  },
-  voiceColumn: {
-    width: 76,
-    gap: 6,
+    gap: 8,
+    alignItems: 'center',
+    marginHorizontal: 28,
+    marginBottom: 5,
   },
   voiceButton: {
-    minWidth: 76,
+    width: 46,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(128, 96, 210, 0.72)',
+    borderRadius: 6,
+    backgroundColor: 'rgba(13, 10, 28, 0.78)',
   },
-  voiceStatus: {
-    color: '#9ab2ca',
-    fontSize: 11,
-    fontWeight: '800',
-    lineHeight: 15,
+  voiceButtonActive: {
+    borderColor: 'rgba(36, 199, 214, 0.72)',
+    backgroundColor: 'rgba(36, 199, 214, 0.1)',
   },
   messageInput: {
-    minHeight: 54,
-    maxHeight: 116,
+    minHeight: 44,
+    maxHeight: 44,
     flex: 1,
     borderWidth: 1,
-    borderColor: '#1e6f9b',
-    borderRadius: 8,
-    backgroundColor: '#081322',
-    color: '#f2fbff',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 17,
-    textAlignVertical: 'top',
+    borderColor: 'rgba(12, 160, 190, 0.34)',
+    borderRadius: 6,
+    backgroundColor: 'rgba(3, 10, 22, 0.82)',
+    color: '#d8f3f7',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    fontSize: 13,
+    textAlignVertical: 'center',
   },
   sendButton: {
-    minWidth: 92,
+    width: 58,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(25, 190, 215, 0.78)',
+    borderRadius: 6,
+    backgroundColor: 'rgba(3, 125, 150, 0.08)',
+  },
+  sendText: {
+    color: '#24c7d6',
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0,
+    lineHeight: 12,
+  },
+  pressed: {
+    opacity: 0.58,
   },
 });

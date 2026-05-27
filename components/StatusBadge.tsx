@@ -8,7 +8,9 @@ type StatusBadgeProps = {
 export function StatusBadge({ label, status }: StatusBadgeProps) {
   return (
     <View style={[styles.badge, styles[status]]}>
-      <Text style={styles.text}>{label}</Text>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={styles.text}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -16,22 +18,26 @@ export function StatusBadge({ label, status }: StatusBadgeProps) {
 const styles = StyleSheet.create({
   badge: {
     alignSelf: 'flex-start',
-    borderRadius: 8,
+    borderWidth: 1,
+    borderRadius: 9,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
   online: {
-    backgroundColor: '#073a42',
+    borderColor: 'rgba(36, 199, 214, 0.28)',
+    backgroundColor: 'rgba(5, 15, 30, 0.74)',
   },
   offline: {
-    backgroundColor: '#171d2d',
+    borderColor: 'rgba(136, 150, 180, 0.2)',
+    backgroundColor: 'rgba(7, 21, 40, 0.6)',
   },
   error: {
-    backgroundColor: '#1b0815',
+    borderColor: 'rgba(140, 117, 201, 0.3)',
+    backgroundColor: 'rgba(22, 14, 48, 0.56)',
   },
   text: {
-    color: '#d9f7ff',
-    fontSize: 13,
+    color: '#d8edf4',
+    fontSize: 11,
     fontWeight: '900',
   },
 });

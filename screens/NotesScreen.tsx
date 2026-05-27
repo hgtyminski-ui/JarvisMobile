@@ -43,17 +43,17 @@ export function NotesScreen({
     <ScrollView style={styles.panelScroll} contentContainerStyle={styles.notesContent}>
       <View style={styles.notesToolbar}>
         <HudButton title="Nowa notatka" onPress={onToggleNewNote} style={styles.toolbarPrimary} />
-        <HudButton title="Odśwież" variant="secondary" onPress={onRefresh} />
+        <HudButton title="Odśwież" variant="secondary" onPress={onRefresh} style={styles.toolbarButton} />
       </View>
 
       {isNewNoteOpen ? (
         <HudPanel style={styles.noteEditor}>
-          <Text style={styles.sectionTitle}>Nowa notatka</Text>
+          <Text style={styles.sectionTitle}>NOWA NOTATKA</Text>
           <TextInput
             value={newNoteTitle}
             onChangeText={onNewNoteTitleChange}
             placeholder="Tytuł"
-            placeholderTextColor="#6e8397"
+            placeholderTextColor="#6f829b"
             style={styles.input}
           />
           <TextInput
@@ -61,7 +61,7 @@ export function NotesScreen({
             onChangeText={onNewNoteContentChange}
             multiline
             placeholder="Treść"
-            placeholderTextColor="#6e8397"
+            placeholderTextColor="#6f829b"
             style={[styles.input, styles.noteContentInput]}
           />
           <HudButton title="Zapisz notatkę" onPress={onCreateNote} disabled={notesLoading} />
@@ -74,7 +74,7 @@ export function NotesScreen({
         </Text>
       ) : null}
 
-      {notesLoading ? <ActivityIndicator color="#22f2ff" /> : null}
+      {notesLoading ? <ActivityIndicator color="#35e7f5" /> : null}
 
       <View style={styles.noteList}>
         {notes.map((note) => (
@@ -91,7 +91,9 @@ export function NotesScreen({
 
       {selectedNote ? (
         <HudPanel style={styles.notePreview}>
-          <Text style={styles.sectionTitle}>{selectedNote.title}</Text>
+          <Text selectable style={styles.sectionTitle}>
+            {selectedNote.title}
+          </Text>
           <Text selectable style={styles.noteDate}>
             {selectedNote.createdAt}
           </Text>
@@ -115,68 +117,71 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   notesContent: {
-    gap: 18,
-    padding: 18,
-    paddingBottom: 26,
+    gap: 14,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 24,
   },
   notesToolbar: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
   },
   toolbarPrimary: {
     flex: 1,
   },
+  toolbarButton: {
+    minWidth: 112,
+  },
   noteEditor: {
-    gap: 12,
+    gap: 10,
   },
   sectionTitle: {
-    color: '#f2fbff',
-    fontSize: 22,
+    color: '#35e7f5',
+    fontSize: 13,
     fontWeight: '900',
+    letterSpacing: 3,
   },
   input: {
-    minHeight: 54,
+    minHeight: 46,
     borderWidth: 1,
-    borderColor: '#1e6f9b',
-    borderRadius: 8,
-    backgroundColor: '#081322',
-    color: '#f2fbff',
+    borderColor: 'rgba(21, 223, 255, 0.32)',
+    borderRadius: 10,
+    backgroundColor: 'rgba(6, 18, 36, 0.62)',
+    color: '#e9fbff',
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 17,
+    paddingVertical: 10,
+    fontSize: 15,
   },
   noteContentInput: {
-    minHeight: 132,
+    minHeight: 108,
     textAlignVertical: 'top',
   },
   notesStatus: {
-    color: '#9ab2ca',
-    fontSize: 16,
-    lineHeight: 24,
+    color: '#9cb2c9',
+    fontSize: 14,
+    lineHeight: 21,
   },
   noteList: {
-    gap: 12,
+    gap: 10,
   },
   noteRow: {
-    minHeight: 72,
+    minHeight: 62,
     alignItems: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#1e3569',
-    backgroundColor: '#081322',
+    borderColor: 'rgba(21, 223, 255, 0.24)',
   },
   notePreview: {
-    gap: 12,
-    borderColor: '#2c1f70',
-    backgroundColor: '#0d0a22',
+    gap: 10,
+    borderColor: 'rgba(161, 125, 255, 0.42)',
+    backgroundColor: 'rgba(13, 10, 34, 0.62)',
   },
   noteDate: {
-    color: '#9ab2ca',
-    fontSize: 14,
-    lineHeight: 20,
+    color: '#9cb2c9',
+    fontSize: 12,
+    lineHeight: 18,
   },
   noteBody: {
     color: '#d8edf4',
-    fontSize: 17,
-    lineHeight: 26,
+    fontSize: 15,
+    lineHeight: 23,
   },
 });

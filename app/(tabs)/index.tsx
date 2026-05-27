@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Feather } from '@expo/vector-icons';
 import { ActivityIndicator, KeyboardAvoidingView, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 
+import { HudBackground } from '@/components/HudBackground';
 import { HudButton } from '@/components/HudButton';
 import { HudPanel } from '@/components/HudPanel';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -93,7 +97,6 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
-  const [backendStatus, setBackendStatus] = useState('Nie sprawdzono');
   const [pcConnectionStatus, setPcConnectionStatus] = useState<'aktywne' | 'brak'>('brak');
   const [agentStatus, setAgentStatus] = useState<AgentStatus>('unknown');
   const [notes, setNotes] = useState<NoteSummary[]>([]);
@@ -130,6 +133,17 @@ export default function HomeScreen() {
 
     return '';
   }, [speech.error, speech.isListening, speech.recognizedText]);
+  const coreStatus = useMemo(() => {
+    if (speech.isListening) {
+      return 'LISTENING';
+    }
+
+    if (loading) {
+      return 'PROCESSING';
+    }
+
+    return 'READY';
+  }, [loading, speech.isListening]);
 
   const addHistory = useCallback((title: string, detail: string, isError = false) => {
     setHistory((items) => [
@@ -409,11 +423,9 @@ export default function HomeScreen() {
 
     try {
       const detail = await getStatus(apiConfig);
-      setBackendStatus('Backend online / LM Studio gotowe');
       addHistory('Status', detail);
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Nieznany błąd.';
-      setBackendStatus(detail === 'Unauthorized' ? 'Unauthorized' : 'Backend offline');
       addHistory('Status', detail, true);
     } finally {
       refreshAgentsStatus();
@@ -505,22 +517,21 @@ export default function HomeScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.app} behavior="padding">
+    <SafeAreaView style={styles.app} edges={['top', 'bottom']}>
+      <StatusBar hidden />
+      <HudBackground />
+      <KeyboardAvoidingView style={styles.keyboard} behavior="padding">
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View>
             <Text style={styles.kicker}>LOCAL AI CONTROL</Text>
             <Text style={styles.title}>JARVIS MOBILE</Text>
           </View>
-          {loading ? <ActivityIndicator color="#22f2ff" /> : null}
+          {loading ? <ActivityIndicator color="#22f2ff" style={styles.loadingIndicator} /> : null}
         </View>
 
         <Pressable onPress={checkStatus} disabled={loading}>
           <HudPanel style={styles.statusPanel}>
-            <Text style={styles.statusLabel}>Backend / LM Studio</Text>
-            <Text selectable style={styles.statusValue}>
-              {backendStatus}
-            </Text>
             <StatusBadge
               label={`Połączenie z PC: ${pcConnectionStatus}`}
               status={pcConnectionStatus === 'aktywne' ? 'online' : 'offline'}
@@ -535,9 +546,6 @@ export default function HomeScreen() {
                     : 'error'
               }
             />
-            <Text selectable style={styles.statusMeta}>
-              Device ID: {deviceId || 'hubert-pc'}
-            </Text>
           </HudPanel>
         </Pressable>
 
@@ -567,6 +575,7 @@ export default function HomeScreen() {
             canSend={canSend}
             voiceStatus={voiceStatus}
             isListening={speech.isListening}
+            coreStatus={coreStatus}
             onMessageChange={setMessage}
             onSend={sendMessage}
             onPushToTalkStart={speech.startListening}
@@ -611,128 +620,158 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.bottomNav}>
-        <NavButton title="Chat" active={activeTab === 'chat'} onPress={() => setActiveTab('chat')} />
+        <NavButton
+          title="Chat"
+          icon="message-circle"
+          active={activeTab === 'chat'}
+          onPress={() => setActiveTab('chat')}
+        />
         <NavButton
           title="Aplikacje"
+          icon="grid"
           active={activeTab === 'apps'}
           onPress={() => setActiveTab('apps')}
         />
         <NavButton
           title="Notatki"
+          icon="file-text"
           active={activeTab === 'notes'}
           onPress={() => setActiveTab('notes')}
         />
         <NavButton
           title="Ustawienia"
+          icon="settings"
           active={activeTab === 'settings'}
           onPress={() => setActiveTab('settings')}
         />
       </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 type NavButtonProps = {
   title: string;
+  icon: keyof typeof Feather.glyphMap;
   active: boolean;
   onPress: () => void;
 };
 
-function NavButton({ title, active, onPress }: NavButtonProps) {
+function NavButton({ title, icon, active, onPress }: NavButtonProps) {
+  const color = active ? '#24c7d6' : '#8896b4';
+
   return (
-    <HudButton
-      title={title}
-      active={active}
-      variant="ghost"
+    <Pressable
       onPress={onPress}
-      style={styles.navButton}
-    />
+      style={({ pressed }) => [styles.navButton, pressed && styles.navButtonPressed]}>
+      <Feather name={icon} size={22} color={color} />
+      <Text
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.72}
+        style={[styles.navButtonText, active ? styles.navButtonTextActive : styles.navButtonTextInactive]}>
+        {title}
+      </Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   app: {
     flex: 1,
-    backgroundColor: '#05070d',
+    backgroundColor: '#030814',
+  },
+  keyboard: {
+    flex: 1,
   },
   header: {
-    gap: 14,
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#151d35',
-    backgroundColor: '#05070d',
+    gap: 9,
+    paddingHorizontal: 24,
+    paddingTop: 10,
+    paddingBottom: 7,
   },
   headerTop: {
-    minHeight: 54,
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  loadingIndicator: {
+    position: 'absolute',
+    right: 0,
+    top: 18,
+  },
+  kicker: {
+    color: '#8d75c9',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 4,
+    textAlign: 'center',
+  },
+  title: {
+    color: '#24c7d6',
+    fontSize: 28,
+    fontWeight: '300',
+    letterSpacing: 7,
+    textAlign: 'center',
+  },
+  statusPanel: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 16,
-  },
-  kicker: {
-    color: '#9b7cff',
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0,
-  },
-  title: {
-    color: '#f2fbff',
-    fontSize: 30,
-    fontWeight: '900',
-    letterSpacing: 0,
-  },
-  statusPanel: {
     gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  statusLabel: {
-    color: '#22f2ff',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  statusValue: {
-    color: '#d9f7ff',
-    fontSize: 16,
-    lineHeight: 22,
-  },
-  statusMeta: {
-    color: '#9ab2ca',
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 18,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
   modeSwitch: {
     flexDirection: 'row',
-    gap: 8,
-    borderWidth: 1,
-    borderColor: '#182a50',
-    borderRadius: 8,
-    backgroundColor: '#080d1b',
-    padding: 6,
+    gap: 10,
+    paddingHorizontal: 20,
   },
   modeButton: {
     flex: 1,
+    minHeight: 36,
   },
   main: {
     flex: 1,
-    backgroundColor: '#05070d',
   },
   bottomNav: {
     flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#151d35',
-    backgroundColor: '#05070d',
+    gap: 6,
+    marginHorizontal: 18,
+    marginBottom: 7,
+    borderWidth: 1,
+    borderColor: 'rgba(36, 199, 214, 0.28)',
+    borderRadius: 8,
+    backgroundColor: 'rgba(3, 8, 20, 0.82)',
+    paddingHorizontal: 8,
+    paddingTop: 9,
+    paddingBottom: 7,
   },
   navButton: {
-    minHeight: 52,
     flex: 1,
-    paddingHorizontal: 4,
+    minHeight: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingHorizontal: 2,
+  },
+  navButtonPressed: {
+    opacity: 0.62,
+  },
+  navButtonText: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0,
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  navButtonTextActive: {
+    color: '#24c7d6',
+  },
+  navButtonTextInactive: {
+    color: '#8896b4',
   },
 });
