@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 
 const VOICE_FALLBACK_MESSAGE =
-  'Rozpoznawanie mowy na telefonie b\u0119dzie dodane p\u00f3\u017aniej.';
+  'Rozpoznawanie mowy na telefonie będzie dodane później.';
 
 export function useSpeechRecognition() {
   const [isListening, setIsListening] = useState(false);

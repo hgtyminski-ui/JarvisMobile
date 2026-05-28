@@ -9,7 +9,6 @@ export type JarvisSettings = {
   controlMode: ControlMode;
   textScale: string;
   hudScale: string;
-  showStatusPanel: boolean;
   voiceEnabled: boolean;
   voiceLanguage: string;
   voiceRate: string;
@@ -29,7 +28,6 @@ export const DEFAULT_DEVICE_ID = 'hubert-pc';
 export const DEFAULT_CONTROL_MODE: ControlMode = 'pc';
 export const DEFAULT_TEXT_SCALE = '1.0';
 export const DEFAULT_HUD_SCALE = '1.0';
-export const DEFAULT_SHOW_STATUS_PANEL = true;
 export const DEFAULT_VOICE_ENABLED = false;
 export const DEFAULT_VOICE_LANGUAGE = 'pl-PL';
 export const DEFAULT_VOICE_RATE = '1.0';
@@ -44,7 +42,6 @@ const SETTINGS_KEYS = {
   controlMode: 'jarvis.settings.controlMode',
   textScale: 'jarvis.settings.textScale',
   hudScale: 'jarvis.settings.hudScale',
-  showStatusPanel: 'jarvis.settings.showStatusPanel',
   voiceEnabled: 'jarvis.settings.voiceEnabled',
   voiceLanguage: 'jarvis.settings.voiceLanguage',
   voiceRate: 'jarvis.settings.voiceRate',
@@ -75,7 +72,6 @@ export async function loadSettings(): Promise<JarvisSettings> {
     SETTINGS_KEYS.controlMode,
     SETTINGS_KEYS.textScale,
     SETTINGS_KEYS.hudScale,
-    SETTINGS_KEYS.showStatusPanel,
     SETTINGS_KEYS.voiceEnabled,
     SETTINGS_KEYS.voiceLanguage,
     SETTINGS_KEYS.voiceRate,
@@ -96,10 +92,6 @@ export async function loadSettings(): Promise<JarvisSettings> {
         : DEFAULT_CONTROL_MODE,
     textScale: settings[SETTINGS_KEYS.textScale] ?? DEFAULT_TEXT_SCALE,
     hudScale: settings[SETTINGS_KEYS.hudScale] ?? DEFAULT_HUD_SCALE,
-    showStatusPanel: readBoolean(
-      settings[SETTINGS_KEYS.showStatusPanel],
-      DEFAULT_SHOW_STATUS_PANEL
-    ),
     voiceEnabled: readBoolean(settings[SETTINGS_KEYS.voiceEnabled], DEFAULT_VOICE_ENABLED),
     voiceLanguage: settings[SETTINGS_KEYS.voiceLanguage] ?? DEFAULT_VOICE_LANGUAGE,
     voiceRate: settings[SETTINGS_KEYS.voiceRate] ?? DEFAULT_VOICE_RATE,
@@ -120,7 +112,6 @@ export async function saveSettings(settings: JarvisSettings) {
     [SETTINGS_KEYS.controlMode, settings.controlMode],
     [SETTINGS_KEYS.textScale, settings.textScale],
     [SETTINGS_KEYS.hudScale, settings.hudScale],
-    [SETTINGS_KEYS.showStatusPanel, String(settings.showStatusPanel)],
     [SETTINGS_KEYS.voiceEnabled, String(settings.voiceEnabled)],
     [SETTINGS_KEYS.voiceLanguage, settings.voiceLanguage],
     [SETTINGS_KEYS.voiceRate, settings.voiceRate],
@@ -138,7 +129,6 @@ export async function clearSettings() {
     SETTINGS_KEYS.controlMode,
     SETTINGS_KEYS.textScale,
     SETTINGS_KEYS.hudScale,
-    SETTINGS_KEYS.showStatusPanel,
     SETTINGS_KEYS.voiceEnabled,
     SETTINGS_KEYS.voiceLanguage,
     SETTINGS_KEYS.voiceRate,

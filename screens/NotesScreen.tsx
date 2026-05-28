@@ -72,7 +72,14 @@ export function NotesScreen({
             placeholderTextColor="#6f829b"
             style={[styles.input, styles.noteContentInput, { minHeight: scaleHud(108), borderRadius: scaleHud(10), paddingHorizontal: scaleHud(14), paddingVertical: scaleHud(10), fontSize: scaleText(15) }]}
           />
-          <HudButton title="Zapisz notatkę" onPress={onCreateNote} disabled={notesLoading} />
+          <HudButton
+            title="Zapisz notatkę"
+            onPress={() => {
+              console.log('NOTE SAVE BUTTON CLICKED');
+              onCreateNote();
+            }}
+            disabled={notesLoading}
+          />
         </HudPanel>
       ) : null}
 

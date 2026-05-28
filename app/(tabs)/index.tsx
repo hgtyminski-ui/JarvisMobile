@@ -1,19 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Feather } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
 
 import { HudBackground } from '@/components/HudBackground';
 import { HudButton } from '@/components/HudButton';
 import { HudPanel } from '@/components/HudPanel';
 import { HudScaleProvider, useHudScale } from '@/components/HudScaleProvider';
-import { StatusBadge } from '@/components/StatusBadge';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
+import { AppsScreen } from '@/screens/AppsScreen';
+import { ChatScreen } from '@/screens/ChatScreen';
+import { NotesScreen } from '@/screens/NotesScreen';
+import { SettingsScreen } from '@/screens/SettingsScreen';
 import {
   createNote as createBackendNote,
   deleteNote as deleteBackendNote,
-  getAgents,
+  getBackendStatus,
   getNote,
   getNotes,
   getPhonePending,
@@ -33,9 +36,10 @@ import {
   openMobileApp,
   type MobileAppKey,
 } from '@/services/mobileLinks';
+import { speakJarvisText, stopJarvisSpeech } from '@/services/speech';
 import {
-  clearSettings as clearStoredSettings,
   clearPendingNoteDraft as clearStoredPendingNoteDraft,
+  clearSettings as clearStoredSettings,
   DEFAULT_API_TOKEN,
   DEFAULT_BACKEND_URL,
   DEFAULT_CONTROL_MODE,
@@ -43,64 +47,21 @@ import {
   DEFAULT_HUD_SCALE,
   DEFAULT_MICROPHONE_ENABLED,
   DEFAULT_PTT_MODE,
-  DEFAULT_SHOW_STATUS_PANEL,
   DEFAULT_TEXT_SCALE,
   DEFAULT_VOICE_ENABLED,
   DEFAULT_VOICE_LANGUAGE,
   DEFAULT_VOICE_PITCH,
   DEFAULT_VOICE_RATE,
-  loadSettings,
   loadPendingNoteDraft,
+  loadSettings,
   savePendingNoteDraft as saveStoredPendingNoteDraft,
   saveSettings as saveStoredSettings,
   type ControlMode,
   type PendingNoteDraft,
 } from '@/services/storage';
-import { AppsScreen } from '@/screens/AppsScreen';
-import { ChatScreen } from '@/screens/ChatScreen';
-import { NotesScreen } from '@/screens/NotesScreen';
-import { SettingsScreen } from '@/screens/SettingsScreen';
 
 type AppTab = 'chat' | 'apps' | 'notes' | 'settings';
-type AgentStatus = 'online' | 'offline' | 'unknown';
-
-function agentsPayloadContainsDevice(value: unknown, targetDeviceId: string): boolean {
-  if (!targetDeviceId) {
-    return false;
-  }
-
-  if (typeof value === 'string') {
-    return value === targetDeviceId;
-  }
-
-  if (Array.isArray(value)) {
-    return value.some((item) => agentsPayloadContainsDevice(item, targetDeviceId));
-  }
-
-  if (typeof value === 'object' && value !== null) {
-    const record = value as Record<string, unknown>;
-
-    if (Object.prototype.hasOwnProperty.call(record, targetDeviceId)) {
-      return true;
-    }
-
-    return Object.values(record).some((item) => agentsPayloadContainsDevice(item, targetDeviceId));
-  }
-
-  return false;
-}
-
-function formatAgentStatus(status: AgentStatus) {
-  if (status === 'online') {
-    return 'Online';
-  }
-
-  if (status === 'offline') {
-    return 'Offline';
-  }
-
-  return 'Brak danych';
-}
+type OnlineStatus = 'online' | 'offline';
 
 function normalizeText(value: string) {
   return value
@@ -113,7 +74,51 @@ function normalizeText(value: string) {
 function isBareNoteRequest(value: string) {
   const normalized = normalizeText(value);
 
-  return normalized === 'zapisz notatke' || normalized === 'dodaj notatke';
+  return (
+    normalized === 'zapisz notatke' ||
+    normalized === 'dodaj notatke' ||
+    normalized === 'utworz notatke' ||
+    normalized === 'zanotuj' ||
+    normalized === 'zapisz mi' ||
+    normalized === 'zapisz to'
+  );
+}
+
+function extractNoteContentFromChat(value: string) {
+  const original = value.trim();
+
+  if (!original) {
+    return null;
+  }
+
+  const normalized = normalizeText(original);
+
+  const prefixes = [
+    'zapisz mi',
+    'zanotuj',
+    'zapisz notatke',
+    'dodaj notatke',
+    'utworz notatke',
+    'zapisz to',
+  ];
+
+  const matchedPrefix = prefixes.find(
+    (prefix) => normalized === prefix || normalized.startsWith(`${prefix} `)
+  );
+
+  if (!matchedPrefix) {
+    return null;
+  }
+
+  if (normalized === matchedPrefix) {
+    return '';
+  }
+
+  const originalWords = original.split(/\s+/);
+  const prefixWordCount = matchedPrefix.split(/\s+/).length;
+  const content = originalWords.slice(prefixWordCount).join(' ').trim();
+
+  return content;
 }
 
 function isCancelPendingNoteRequest(value: string) {
@@ -139,6 +144,42 @@ function parseScaleValue(value: string, fallback = 1) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function shouldSpeakJarvisResponse(value: string) {
+  const normalized = normalizeText(value);
+  const technicalMessages = ['backend offline', 'unauthorized', 'brak polaczenia', 'backendu'];
+
+  return !technicalMessages.some((message) => normalized.includes(message));
+}
+
+function formatShortStatus(loading: boolean, backendStatus: OnlineStatus) {
+  if (loading) {
+    return 'Wysyłam';
+  }
+
+  if (backendStatus === 'offline') {
+    return 'Łączenie';
+  }
+
+  return 'Gotowy';
+}
+
+function getNotesUiError(error: unknown, fallback: string) {
+  if (error instanceof Error) {
+    const normalized = error.message.trim().toLowerCase();
+
+    if (
+      normalized.includes('akcja nieobsługiwana') ||
+      normalized.includes('akcja nieobslugiwana')
+    ) {
+      return 'Nie udało się obsłużyć notatki.';
+    }
+
+    return error.message;
+  }
+
+  return fallback;
+}
+
 export default function HomeScreen() {
   const [backendUrl, setBackendUrl] = useState(DEFAULT_BACKEND_URL);
   const [apiToken, setApiToken] = useState(DEFAULT_API_TOKEN);
@@ -146,7 +187,6 @@ export default function HomeScreen() {
   const [controlMode, setControlMode] = useState<ControlMode>(DEFAULT_CONTROL_MODE);
   const [textScale, setTextScale] = useState(DEFAULT_TEXT_SCALE);
   const [hudScale, setHudScale] = useState(DEFAULT_HUD_SCALE);
-  const [showStatusPanel, setShowStatusPanel] = useState(DEFAULT_SHOW_STATUS_PANEL);
   const [voiceEnabled, setVoiceEnabled] = useState(DEFAULT_VOICE_ENABLED);
   const [voiceLanguage, setVoiceLanguage] = useState(DEFAULT_VOICE_LANGUAGE);
   const [voiceRate, setVoiceRate] = useState(DEFAULT_VOICE_RATE);
@@ -158,8 +198,9 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<AppTab>('chat');
-  const [pcConnectionStatus, setPcConnectionStatus] = useState<'aktywne' | 'brak'>('brak');
-  const [agentStatus, setAgentStatus] = useState<AgentStatus>('unknown');
+  const [backendStatus, setBackendStatus] = useState<OnlineStatus>('offline');
+  const [lmStudioStatus, setLmStudioStatus] = useState<OnlineStatus>('offline');
+  const [modelName, setModelName] = useState('brak');
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [selectedNote, setSelectedNote] = useState<NoteDetail | null>(null);
@@ -171,7 +212,7 @@ export default function HomeScreen() {
   const [pendingNoteDraft, setPendingNoteDraft] = useState<PendingNoteDraft | null>(null);
   const skipNextSettingsSave = useRef(false);
   const pollingInFlight = useRef(false);
-  const agentsStatusInFlight = useRef(false);
+  const backendStatusInFlight = useRef(false);
   const lastRecognizedText = useRef('');
   const speech = useSpeechRecognition();
 
@@ -216,6 +257,10 @@ export default function HomeScreen() {
 
     return 'READY';
   }, [loading, speech.isListening]);
+  const shortStatus = useMemo(
+    () => formatShortStatus(loading, backendStatus),
+    [backendStatus, loading]
+  );
 
   const addHistory = useCallback((title: string, detail: string, isError = false) => {
     setHistory((items) => [
@@ -252,29 +297,33 @@ export default function HomeScreen() {
     [addHistory]
   );
 
-  const refreshAgentsStatus = useCallback(async () => {
-    const cleanDeviceId = deviceId.trim();
-
-    if (!settingsLoaded || !backendUrl.trim() || !apiToken.trim() || !cleanDeviceId) {
-      setAgentStatus('unknown');
+  const refreshBackendStatus = useCallback(async () => {
+    if (!settingsLoaded || !backendUrl.trim() || !apiToken.trim()) {
+      setBackendStatus('offline');
+      setLmStudioStatus('offline');
+      setModelName('brak');
       return;
     }
 
-    if (agentsStatusInFlight.current) {
+    if (backendStatusInFlight.current) {
       return;
     }
 
-    agentsStatusInFlight.current = true;
+    backendStatusInFlight.current = true;
 
     try {
-      const agents = await getAgents(apiConfig);
-      setAgentStatus(agentsPayloadContainsDevice(agents, cleanDeviceId) ? 'online' : 'offline');
+      const status = await getBackendStatus(apiConfig);
+      setBackendStatus(status.backendOnline ? 'online' : 'offline');
+      setLmStudioStatus(status.lmStudioOnline ? 'online' : 'offline');
+      setModelName(status.model || 'brak');
     } catch {
-      setAgentStatus('unknown');
+      setBackendStatus('offline');
+      setLmStudioStatus('offline');
+      setModelName('brak');
     } finally {
-      agentsStatusInFlight.current = false;
+      backendStatusInFlight.current = false;
     }
-  }, [apiConfig, apiToken, backendUrl, deviceId, settingsLoaded]);
+  }, [apiConfig, apiToken, backendUrl, settingsLoaded]);
 
   useEffect(() => {
     let isMounted = true;
@@ -293,7 +342,6 @@ export default function HomeScreen() {
         setControlMode(settings.controlMode);
         setTextScale(settings.textScale);
         setHudScale(settings.hudScale);
-        setShowStatusPanel(settings.showStatusPanel);
         setVoiceEnabled(settings.voiceEnabled);
         setVoiceLanguage(settings.voiceLanguage);
         setVoiceRate(settings.voiceRate);
@@ -339,7 +387,6 @@ export default function HomeScreen() {
         controlMode === DEFAULT_CONTROL_MODE &&
         textScale === DEFAULT_TEXT_SCALE &&
         hudScale === DEFAULT_HUD_SCALE &&
-        showStatusPanel === DEFAULT_SHOW_STATUS_PANEL &&
         voiceEnabled === DEFAULT_VOICE_ENABLED &&
         voiceLanguage === DEFAULT_VOICE_LANGUAGE &&
         voiceRate === DEFAULT_VOICE_RATE &&
@@ -358,7 +405,6 @@ export default function HomeScreen() {
       controlMode,
       textScale,
       hudScale,
-      showStatusPanel,
       voiceEnabled,
       voiceLanguage,
       voiceRate,
@@ -378,7 +424,6 @@ export default function HomeScreen() {
     microphoneEnabled,
     pttMode,
     settingsLoaded,
-    showStatusPanel,
     textScale,
     voiceEnabled,
     voiceLanguage,
@@ -387,18 +432,17 @@ export default function HomeScreen() {
   ]);
 
   useEffect(() => {
-    refreshAgentsStatus();
+    refreshBackendStatus();
 
-    const intervalId = setInterval(refreshAgentsStatus, 5000);
+    const intervalId = setInterval(refreshBackendStatus, 5000);
 
     return () => {
       clearInterval(intervalId);
     };
-  }, [refreshAgentsStatus]);
+  }, [refreshBackendStatus]);
 
   useEffect(() => {
     if (!settingsLoaded || !backendUrl.trim() || !apiToken.trim()) {
-      setPcConnectionStatus('brak');
       return;
     }
 
@@ -417,8 +461,6 @@ export default function HomeScreen() {
         if (!isMounted) {
           return;
         }
-
-        setPcConnectionStatus(result.active ? 'aktywne' : 'brak');
 
         if (
           result.command?.action !== 'open_mobile_app' ||
@@ -444,7 +486,7 @@ export default function HomeScreen() {
     };
   }, [addHistory, apiConfig, apiToken, backendUrl, openPhoneAppWithHistory, settingsLoaded]);
 
-  const loadNoteDetails = useCallback(
+  const openNote = useCallback(
     async (noteId: string) => {
       setNotesLoading(true);
       setNotesStatus('');
@@ -454,7 +496,7 @@ export default function HomeScreen() {
         setSelectedNoteId(detail.id);
         setSelectedNote(detail);
       } catch (error) {
-        setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
+        setNotesStatus(getNotesUiError(error, 'Nie udało się odczytać notatki.'));
       } finally {
         setNotesLoading(false);
       }
@@ -462,7 +504,7 @@ export default function HomeScreen() {
     [apiConfig]
   );
 
-  const loadNotesList = useCallback(
+  const loadNotes = useCallback(
     async (selectFirst = false) => {
       setNotesLoading(true);
       setNotesStatus('');
@@ -472,19 +514,19 @@ export default function HomeScreen() {
         setNotes(nextNotes);
 
         if (selectFirst && nextNotes.length > 0) {
-          await loadNoteDetails(nextNotes[0].id);
+          await openNote(nextNotes[0].id);
         } else if (nextNotes.length === 0) {
           setSelectedNoteId(null);
           setSelectedNote(null);
           setNotesStatus('Brak notatek.');
         }
       } catch (error) {
-        setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
+        setNotesStatus(getNotesUiError(error, 'Nie udało się wczytać notatek.'));
       } finally {
         setNotesLoading(false);
       }
     },
-    [apiConfig, loadNoteDetails]
+    [apiConfig, openNote]
   );
 
   const createNote = useCallback(async () => {
@@ -501,16 +543,17 @@ export default function HomeScreen() {
 
     try {
       await createBackendNote(apiConfig, { title, content });
+      setNotesStatus('Notatka zapisana.');
       setNewNoteTitle('');
       setNewNoteContent('');
       setIsNewNoteOpen(false);
-      await loadNotesList(true);
-    } catch (error) {
-      setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
+      await loadNotes(false);
+    } catch {
+      setNotesStatus('Nie udało się zapisać notatki.');
     } finally {
       setNotesLoading(false);
     }
-  }, [apiConfig, loadNotesList, newNoteContent, newNoteTitle]);
+  }, [apiConfig, loadNotes, newNoteContent, newNoteTitle]);
 
   const deleteNote = useCallback(
     async (noteId: string) => {
@@ -521,14 +564,15 @@ export default function HomeScreen() {
         await deleteBackendNote(apiConfig, noteId);
         setSelectedNoteId(null);
         setSelectedNote(null);
-        await loadNotesList(true);
+        setNotesStatus('Notatka usunięta.');
+        await loadNotes(false);
       } catch (error) {
-        setNotesStatus(error instanceof Error ? error.message : 'Nieznany błąd.');
+        setNotesStatus(getNotesUiError(error, 'Nie udało się usunąć notatki.'));
       } finally {
         setNotesLoading(false);
       }
     },
-    [apiConfig, loadNotesList]
+    [apiConfig, loadNotes]
   );
 
   const clearPendingNote = useCallback(async () => {
@@ -554,21 +598,21 @@ export default function HomeScreen() {
         await clearPendingNote();
         setMessage('');
         addHistory('Notatki', `Zapisałem notatkę: ${cleanTitle}`);
-        await loadNotesList(true);
+        await loadNotes(true);
       } catch {
         addHistory('Notatki', 'Nie udało się zapisać notatki. Spróbuj ponownie.', true);
       } finally {
         setLoading(false);
       }
     },
-    [addHistory, apiConfig, clearPendingNote, loadNotesList, pendingNoteDraft]
+    [addHistory, apiConfig, clearPendingNote, loadNotes, pendingNoteDraft]
   );
 
   useEffect(() => {
     if (activeTab === 'notes' && settingsLoaded) {
-      loadNotesList(false);
+      loadNotes(false);
     }
-  }, [activeTab, loadNotesList, settingsLoaded]);
+  }, [activeTab, loadNotes, settingsLoaded]);
 
   useEffect(() => {
     const text = speech.recognizedText.trim();
@@ -591,7 +635,7 @@ export default function HomeScreen() {
       const detail = error instanceof Error ? error.message : 'Nieznany błąd.';
       addHistory('Status', detail, true);
     } finally {
-      refreshAgentsStatus();
+      refreshBackendStatus();
       setLoading(false);
     }
   }
@@ -613,7 +657,6 @@ export default function HomeScreen() {
     setControlMode(DEFAULT_CONTROL_MODE);
     setTextScale(DEFAULT_TEXT_SCALE);
     setHudScale(DEFAULT_HUD_SCALE);
-    setShowStatusPanel(DEFAULT_SHOW_STATUS_PANEL);
     setVoiceEnabled(DEFAULT_VOICE_ENABLED);
     setVoiceLanguage(DEFAULT_VOICE_LANGUAGE);
     setVoiceRate(DEFAULT_VOICE_RATE);
@@ -639,6 +682,19 @@ export default function HomeScreen() {
       addHistory('Jarvis', detail);
       setMessage('');
 
+      if (voiceEnabled && shouldSpeakJarvisResponse(detail)) {
+        const speechResult = await speakJarvisText(detail, {
+          enabled: voiceEnabled,
+          language: voiceLanguage,
+          rate: voiceRate,
+          pitch: voicePitch,
+        });
+
+        if (!speechResult.ok && speechResult.reason) {
+          addHistory('Głos', speechResult.reason, true);
+        }
+      }
+
       if (
         result.status === 'need_input' &&
         result.missing === 'title' &&
@@ -654,7 +710,7 @@ export default function HomeScreen() {
       }
 
       if (looksLikeSavedNoteResponse(detail)) {
-        await loadNotesList(true);
+        await loadNotes(true);
       }
     } catch (error) {
       addHistory(
@@ -663,7 +719,7 @@ export default function HomeScreen() {
         true
       );
     } finally {
-      refreshAgentsStatus();
+      refreshBackendStatus();
       setLoading(false);
     }
   }
@@ -695,6 +751,33 @@ export default function HomeScreen() {
       setActiveTab('notes');
       setNotesStatus('Podaj tytuł notatki.');
       addHistory('Notatki', 'Podaj tytuł notatki.');
+      return;
+    }
+    const noteContent = extractNoteContentFromChat(cleanText);
+
+    if (noteContent !== null) {
+      setMessage('');
+
+      if (!noteContent) {
+        setNewNoteContent('');
+        setIsNewNoteOpen(true);
+        setActiveTab('notes');
+        setNotesStatus('Podaj treść notatki.');
+        addHistory('Notatki', 'Podaj treść notatki.');
+        return;
+      }
+
+      const draft: PendingNoteDraft = {
+        content: noteContent,
+        waitingFor: 'title',
+      };
+
+      setPendingNoteDraft(draft);
+      saveStoredPendingNoteDraft(draft).catch(() => {
+        addHistory('Notatki', 'Nie udało się zapisać szkicu notatki.', true);
+      });
+
+      addHistory('Notatki', 'Jaki ma być tytuł notatki?');
       return;
     }
 
@@ -743,7 +826,7 @@ export default function HomeScreen() {
         addHistory('Command', error instanceof Error ? error.message : 'Nieznany błąd.', true);
       })
       .finally(() => {
-        refreshAgentsStatus();
+        refreshBackendStatus();
         setLoading(false);
       });
   }
@@ -763,26 +846,23 @@ export default function HomeScreen() {
           {loading ? <ActivityIndicator color="#22f2ff" style={[styles.loadingIndicator, { top: scaleHud(18) }]} /> : null}
         </View>
 
-        {showStatusPanel ? (
         <Pressable onPress={checkStatus} disabled={loading}>
-            <HudPanel style={[styles.statusPanel, { minHeight: scaleHud(44), gap: scaleHud(8), paddingHorizontal: scaleHud(8), paddingVertical: scaleHud(5) }]}>
-            <StatusBadge
-              label={`Połączenie z PC: ${pcConnectionStatus}`}
-              status={pcConnectionStatus === 'aktywne' ? 'online' : 'offline'}
-            />
-            <StatusBadge
-              label={`Agent PC: ${formatAgentStatus(agentStatus)}`}
-              status={
-                agentStatus === 'online'
-                  ? 'online'
-                  : agentStatus === 'offline'
-                    ? 'offline'
-                    : 'error'
-              }
-            />
+          <HudPanel
+            style={[
+              styles.shortStatusPanel,
+              {
+                minHeight: scaleHud(34),
+                paddingHorizontal: scaleHud(12),
+                paddingVertical: scaleHud(5),
+              },
+            ]}>
+            <Text
+              selectable
+              style={[styles.shortStatusText, { fontSize: scaleText(12), lineHeight: scaleText(16) }]}>
+              {shortStatus}
+            </Text>
           </HudPanel>
         </Pressable>
-        ) : null}
 
         <View style={[styles.modeSwitch, { gap: scaleHud(10), paddingHorizontal: scaleHud(20) }]}>
           <HudButton
@@ -830,8 +910,8 @@ export default function HomeScreen() {
             newNoteTitle={newNoteTitle}
             newNoteContent={newNoteContent}
             isNewNoteOpen={isNewNoteOpen}
-            onRefresh={() => loadNotesList(true)}
-            onSelectNote={loadNoteDetails}
+            onRefresh={() => loadNotes(true)}
+            onSelectNote={openNote}
             onDeleteNote={deleteNote}
             onCreateNote={createNote}
             onNewNoteTitleChange={setNewNoteTitle}
@@ -845,9 +925,12 @@ export default function HomeScreen() {
             apiToken={apiToken}
             deviceId={deviceId}
             controlMode={controlMode}
+            backendStatus={backendStatus}
+            lmStudioStatus={lmStudioStatus}
+            modelName={modelName}
+            phonePcLinkStatus="aktywny"
             textScale={textScale}
             hudScale={hudScale}
-            showStatusPanel={showStatusPanel}
             voiceEnabled={voiceEnabled}
             voiceLanguage={voiceLanguage}
             voiceRate={voiceRate}
@@ -858,15 +941,34 @@ export default function HomeScreen() {
             onApiTokenChange={setApiToken}
             onDeviceIdChange={setDeviceId}
             onControlModeChange={setControlMode}
+            onRefreshConnection={refreshBackendStatus}
             onTextScaleChange={setTextScale}
             onHudScaleChange={setHudScale}
-            onShowStatusPanelChange={setShowStatusPanel}
             onVoiceEnabledChange={setVoiceEnabled}
             onVoiceLanguageChange={setVoiceLanguage}
             onVoiceRateChange={setVoiceRate}
             onVoicePitchChange={setVoicePitch}
             onMicrophoneEnabledChange={setMicrophoneEnabled}
             onPttModeChange={setPttMode}
+            onTestVoice={async () => {
+              const speechResult = await speakJarvisText('Jarvis gotowy.', {
+                enabled: true,
+                language: voiceLanguage,
+                rate: voiceRate,
+                pitch: voicePitch,
+              });
+
+              if (!speechResult.ok && speechResult.reason) {
+                addHistory('Głos', speechResult.reason, true);
+              }
+            }}
+            onStopVoice={async () => {
+              const speechResult = await stopJarvisSpeech();
+
+              if (!speechResult.ok && speechResult.reason) {
+                addHistory('Głos', speechResult.reason, true);
+              }
+            }}
             onClearSettings={clearSettings}
           />
         ) : null}
@@ -968,10 +1070,16 @@ const styles = StyleSheet.create({
     fontWeight: '300',
     textAlign: 'center',
   },
-  statusPanel: {
+  shortStatusPanel: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    alignSelf: 'center',
+  },
+  shortStatusText: {
+    color: '#24c7d6',
+    fontWeight: '900',
+    letterSpacing: 1,
   },
   modeSwitch: {
     flexDirection: 'row',

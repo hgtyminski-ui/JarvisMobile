@@ -55,7 +55,7 @@ export type OpenMobileAppResult = {
   usedFallback: boolean;
 };
 
-const OPEN_COMMAND_PREFIXES = ['open', 'otw\u00f3rz', 'otworz', 'uruchom', 'odpal'];
+const OPEN_COMMAND_PREFIXES = ['open', 'otwórz', 'otworz', 'uruchom', 'odpal'];
 const WHATSAPP_LINKS = [
   { url: 'whatsapp://', checkCanOpen: true },
   { url: 'whatsapp://send', checkCanOpen: true },

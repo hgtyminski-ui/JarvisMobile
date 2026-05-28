@@ -37,6 +37,13 @@ export type ProcessTextResult = {
   };
 };
 
+export type BackendStatus = {
+  backendOnline: boolean;
+  lmStudioOnline: boolean;
+  model: string;
+  message: string;
+};
+
 type AppAction = 'otwórz' | 'zamknij';
 
 function trimSlash(value: string) {
@@ -86,6 +93,32 @@ function readJsonValue(value: unknown) {
   return text || null;
 }
 
+function getPayloadMessage(payload: unknown) {
+  if (isRecord(payload)) {
+    return (
+      readJsonValue(payload.response) ||
+      readJsonValue(payload.detail) ||
+      readJsonValue(payload.message) ||
+      null
+    );
+  }
+
+  return readJsonValue(payload);
+}
+
+function normalizeNotesErrorMessage(message: string) {
+  const normalized = message.trim().toLowerCase();
+
+  if (
+    normalized.includes('akcja nieobsługiwana') ||
+    normalized.includes('akcja nieobslugiwana')
+  ) {
+    return 'Nie udało się obsłużyć notatki.';
+  }
+
+  return message;
+}
+
 async function readTextOrJson(response: Response) {
   const text = await response.text();
 
@@ -102,25 +135,15 @@ async function readTextOrJson(response: Response) {
 
 export async function parseApiResponse(response: Response, path = '') {
   const payload = await readTextOrJson(response);
+  const statusValue = isRecord(payload) ? readStringField(payload.status).toLowerCase() : '';
+  const message = getPayloadMessage(payload) || 'OK';
 
-  let message = 'OK';
-
-  if (isRecord(payload)) {
-    const responseValue = readJsonValue(payload.response);
-    const detailValue = readJsonValue(payload.detail);
-    const statusValue = readStringField(payload.status).toLowerCase();
-
-    if (responseValue) {
-      message = responseValue;
-    } else if (detailValue) {
-      message = detailValue;
+  if (statusValue === 'error') {
+    if (path.startsWith('/notes')) {
+      throw new Error(normalizeNotesErrorMessage(message || 'Nie udało się obsłużyć notatki.'));
     }
 
-    if (statusValue === 'error') {
-      throw new Error(message || 'Błąd backendu');
-    }
-  } else if (payload !== null) {
-    message = readStringField(payload) || 'OK';
+    throw new Error(message || 'Błąd backendu');
   }
 
   if (path.startsWith('/notes') && response.status === 404) {
@@ -128,6 +151,12 @@ export async function parseApiResponse(response: Response, path = '') {
   }
 
   if (!response.ok) {
+    if (path.startsWith('/notes')) {
+      throw new Error(
+        normalizeNotesErrorMessage(message || `Błąd backendu: ${response.status}`)
+      );
+    }
+
     throw new Error(message || `Błąd backendu: ${response.status}`);
   }
 
@@ -171,6 +200,8 @@ async function requestJson(config: ApiConfig, path: string, options?: RequestIni
   }
 
   const payload = await readTextOrJson(response);
+  const statusValue = isRecord(payload) ? readStringField(payload.status).toLowerCase() : '';
+  const message = getPayloadMessage(payload);
 
   if (response.status === 401 || response.status === 403) {
     throw new Error('Unauthorized');
@@ -180,9 +211,22 @@ async function requestJson(config: ApiConfig, path: string, options?: RequestIni
     throw new Error('Notatki nie są dostępne w tym Hubie.');
   }
 
+  if (statusValue === 'error') {
+    if (path.startsWith('/notes')) {
+      throw new Error(normalizeNotesErrorMessage(message || 'Nie udało się obsłużyć notatki.'));
+    }
+
+    throw new Error(message || 'Błąd backendu');
+  }
+
   if (!response.ok) {
-    const detail = isRecord(payload) ? readStringField(payload.detail) : readStringField(payload);
-    throw new Error(detail || `Błąd backendu: ${response.status}`);
+    if (path.startsWith('/notes')) {
+      throw new Error(
+        normalizeNotesErrorMessage(message || `Błąd backendu: ${response.status}`)
+      );
+    }
+
+    throw new Error(message || `Błąd backendu: ${response.status}`);
   }
 
   return payload;
@@ -219,8 +263,6 @@ function normalizeNoteSummary(value: unknown, index = 0): NoteSummary | null {
     readStringField(
       value.id ?? value.note_id ?? value.uuid ?? value.key ?? value.filename ?? value.file ?? value.path
     ) || `${title}-${createdAt}-${index}`;
-  value.title = title;
-  value.createdAt = createdAt;
 
   if (!id) {
     return null;
@@ -228,8 +270,8 @@ function normalizeNoteSummary(value: unknown, index = 0): NoteSummary | null {
 
   return {
     id,
-    title: readStringField(value.title) || 'Bez tytułu',
-    createdAt: formatNoteDate(getNoteCreatedAt(value)),
+    title,
+    createdAt,
   };
 }
 
@@ -272,6 +314,25 @@ function getNotesArray(payload: unknown) {
 
 export async function getStatus(config: ApiConfig) {
   return requestMessage(config, '/status');
+}
+
+export async function getBackendStatus(config: ApiConfig): Promise<BackendStatus> {
+  const payload = await requestJson(config, '/status');
+  const lmStudioValue = isRecord(payload)
+    ? readStringField(payload.lm_studio ?? payload.lmStudio ?? payload.lm_studio_status)
+    : '';
+  const model = isRecord(payload)
+    ? readStringField(payload.model ?? payload.model_name ?? payload.active_model)
+    : '';
+
+  return {
+    backendOnline: true,
+    lmStudioOnline: lmStudioValue.toLowerCase() === 'online',
+    model: model || 'brak',
+    message: isRecord(payload)
+      ? readStringField(payload.response ?? payload.status ?? payload.message) || 'Backend Online'
+      : readStringField(payload) || 'Backend Online',
+  };
 }
 
 export async function sendChat(config: ApiConfig, message: string) {
@@ -372,6 +433,7 @@ export async function toggleApp(config: ApiConfig, target: string, action: AppAc
 }
 
 export async function getNotes(config: ApiConfig) {
+  console.log('Loading notes via /notes');
   const payload = await requestJson(config, '/notes');
 
   return getNotesArray(payload)
@@ -391,16 +453,50 @@ export async function getNote(config: ApiConfig, noteId: string) {
 }
 
 export async function createNote(config: ApiConfig, note: { title: string; content: string }) {
-  return requestJson(config, '/notes', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(note),
-  });
+  const { baseUrl, token } = assertAuthedConfig(config);
+  let response: Response;
+
+  console.log('Creating note via /notes', baseUrl, note.title, note.content);
+
+  try {
+    response = await fetch(`${baseUrl}/notes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Jarvis-Token': token,
+      },
+      body: JSON.stringify({
+        title: note.title,
+        content: note.content,
+      }),
+    });
+  } catch {
+    throw new Error('Nie udało się zapisać notatki.');
+  }
+
+  console.log('Create note response status', response.status);
+
+  const payload = await readTextOrJson(response);
+  const statusValue = isRecord(payload) ? readStringField(payload.status).toLowerCase() : '';
+  const message = getPayloadMessage(payload);
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error('Unauthorized');
+  }
+
+  if (statusValue === 'error') {
+    throw new Error(normalizeNotesErrorMessage(message || 'Nie udało się zapisać notatki.'));
+  }
+
+  if (!response.ok) {
+    throw new Error(normalizeNotesErrorMessage(message || 'Nie udało się zapisać notatki.'));
+  }
+
+  return payload;
 }
 
 export async function deleteNote(config: ApiConfig, noteId: string) {
+  console.log(`Deleting note via /notes/${noteId}`);
   return requestJson(config, `/notes/${encodeURIComponent(noteId)}`, {
     method: 'DELETE',
   });
