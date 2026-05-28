@@ -2,6 +2,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from
 
 import { HudButton } from '@/components/HudButton';
 import { HudPanel } from '@/components/HudPanel';
+import { useHudScale } from '@/components/HudScaleProvider';
 import type { NoteDetail, NoteSummary } from '@/services/api';
 
 type NotesScreenProps = {
@@ -39,22 +40,29 @@ export function NotesScreen({
   onNewNoteContentChange,
   onToggleNewNote,
 }: NotesScreenProps) {
+  const { scaleHud, scaleText } = useHudScale();
+
   return (
-    <ScrollView style={styles.panelScroll} contentContainerStyle={styles.notesContent}>
-      <View style={styles.notesToolbar}>
+    <ScrollView
+      style={styles.panelScroll}
+      contentContainerStyle={[
+        styles.notesContent,
+        { gap: scaleHud(14), paddingHorizontal: scaleHud(18), paddingTop: scaleHud(18), paddingBottom: scaleHud(24) },
+      ]}>
+      <View style={[styles.notesToolbar, { gap: scaleHud(10) }]}>
         <HudButton title="Nowa notatka" onPress={onToggleNewNote} style={styles.toolbarPrimary} />
         <HudButton title="Odśwież" variant="secondary" onPress={onRefresh} style={styles.toolbarButton} />
       </View>
 
       {isNewNoteOpen ? (
         <HudPanel style={styles.noteEditor}>
-          <Text style={styles.sectionTitle}>NOWA NOTATKA</Text>
+          <Text style={[styles.sectionTitle, { fontSize: scaleText(13), letterSpacing: scaleText(3) }]}>NOWA NOTATKA</Text>
           <TextInput
             value={newNoteTitle}
             onChangeText={onNewNoteTitleChange}
             placeholder="Tytuł"
             placeholderTextColor="#6f829b"
-            style={styles.input}
+            style={[styles.input, { minHeight: scaleHud(46), borderRadius: scaleHud(10), paddingHorizontal: scaleHud(14), paddingVertical: scaleHud(10), fontSize: scaleText(15) }]}
           />
           <TextInput
             value={newNoteContent}
@@ -62,21 +70,21 @@ export function NotesScreen({
             multiline
             placeholder="Treść"
             placeholderTextColor="#6f829b"
-            style={[styles.input, styles.noteContentInput]}
+            style={[styles.input, styles.noteContentInput, { minHeight: scaleHud(108), borderRadius: scaleHud(10), paddingHorizontal: scaleHud(14), paddingVertical: scaleHud(10), fontSize: scaleText(15) }]}
           />
           <HudButton title="Zapisz notatkę" onPress={onCreateNote} disabled={notesLoading} />
         </HudPanel>
       ) : null}
 
       {notesStatus ? (
-        <Text selectable style={styles.notesStatus}>
+        <Text selectable style={[styles.notesStatus, { fontSize: scaleText(14), lineHeight: scaleText(21) }]}>
           {notesStatus}
         </Text>
       ) : null}
 
       {notesLoading ? <ActivityIndicator color="#35e7f5" /> : null}
 
-      <View style={styles.noteList}>
+      <View style={[styles.noteList, { gap: scaleHud(10) }]}>
         {notes.map((note) => (
           <HudButton
             key={note.id}
@@ -84,20 +92,20 @@ export function NotesScreen({
             variant="ghost"
             active={selectedNoteId === note.id}
             onPress={() => onSelectNote(note.id)}
-            style={styles.noteRow}
+            style={[styles.noteRow, { minHeight: scaleHud(62) }]}
           />
         ))}
       </View>
 
       {selectedNote ? (
         <HudPanel style={styles.notePreview}>
-          <Text selectable style={styles.sectionTitle}>
+          <Text selectable style={[styles.sectionTitle, { fontSize: scaleText(13), letterSpacing: scaleText(3) }]}>
             {selectedNote.title}
           </Text>
-          <Text selectable style={styles.noteDate}>
+          <Text selectable style={[styles.noteDate, { fontSize: scaleText(12), lineHeight: scaleText(18) }]}>
             {selectedNote.createdAt}
           </Text>
-          <Text selectable style={styles.noteBody}>
+          <Text selectable style={[styles.noteBody, { fontSize: scaleText(15), lineHeight: scaleText(23) }]}>
             {selectedNote.content}
           </Text>
           <HudButton

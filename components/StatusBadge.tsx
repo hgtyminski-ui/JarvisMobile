@@ -1,14 +1,31 @@
 import { StyleSheet, Text, View } from 'react-native';
 
+import { useHudScale } from './HudScaleProvider';
+
 type StatusBadgeProps = {
   label: string;
   status: 'online' | 'offline' | 'error';
 };
 
 export function StatusBadge({ label, status }: StatusBadgeProps) {
+  const { scaleHud, scaleText } = useHudScale();
+
   return (
-    <View style={[styles.badge, styles[status]]}>
-      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={styles.text}>
+    <View
+      style={[
+        styles.badge,
+        styles[status],
+        {
+          borderRadius: scaleHud(9),
+          paddingHorizontal: scaleHud(10),
+          paddingVertical: scaleHud(6),
+        },
+      ]}>
+      <Text
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.78}
+        style={[styles.text, { fontSize: scaleText(11) }]}>
         {label}
       </Text>
     </View>
@@ -19,9 +36,6 @@ const styles = StyleSheet.create({
   badge: {
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderRadius: 9,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
   },
   online: {
     borderColor: 'rgba(36, 199, 214, 0.28)',
@@ -37,7 +51,6 @@ const styles = StyleSheet.create({
   },
   text: {
     color: '#d8edf4',
-    fontSize: 11,
     fontWeight: '900',
   },
 });

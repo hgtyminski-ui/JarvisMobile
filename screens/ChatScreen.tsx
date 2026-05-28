@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { JarvisRadar } from '@/components/JarvisRadar';
+import { useHudScale } from '@/components/HudScaleProvider';
 import type { HistoryItem } from '@/services/api';
 
 type ChatScreenProps = {
@@ -29,6 +30,7 @@ export function ChatScreen({
   onPushToTalkStart,
   onPushToTalkEnd,
 }: ChatScreenProps) {
+  const { scaleHud, scaleText } = useHudScale();
   const latestItem = history[0];
   const toastTitle = latestItem?.title ?? (voiceStatus ? 'VOICE' : '');
   const toastDetail = latestItem?.detail ?? voiceStatus;
@@ -38,7 +40,14 @@ export function ChatScreen({
     <View style={styles.screen}>
       <ScrollView
         style={styles.panelScroll}
-        contentContainerStyle={styles.logContent}
+        contentContainerStyle={[
+          styles.logContent,
+          {
+            paddingHorizontal: scaleHud(18),
+            paddingTop: scaleHud(10),
+            paddingBottom: scaleHud(18),
+          },
+        ]}
         contentInsetAdjustmentBehavior="automatic">
         <View style={styles.coreSpace}>
           <JarvisRadar stateLabel={coreStatus} active={isListening || history.length > 0} />
@@ -46,26 +55,49 @@ export function ChatScreen({
       </ScrollView>
 
       {toastDetail ? (
-        <View style={[styles.toast, isToastError && styles.errorToast]}>
-          <Text style={[styles.toastTitle, isToastError && styles.errorText]} numberOfLines={1}>
+        <View
+          style={[
+            styles.toast,
+            {
+              minHeight: scaleHud(44),
+              maxHeight: scaleHud(96),
+              gap: scaleHud(2),
+              marginHorizontal: scaleHud(28),
+              marginBottom: scaleHud(12),
+              borderRadius: scaleHud(6),
+              paddingHorizontal: scaleHud(10),
+              paddingVertical: scaleHud(7),
+            },
+            isToastError && styles.errorToast,
+          ]}>
+          <Text
+            style={[styles.toastTitle, { fontSize: scaleText(9) }, isToastError && styles.errorText]}
+            numberOfLines={1}>
             {toastTitle}
           </Text>
-          <Text selectable style={styles.toastDetail} numberOfLines={2}>
-            {toastDetail}
-          </Text>
+          <ScrollView style={[styles.toastScroll, { maxHeight: scaleHud(60) }]} nestedScrollEnabled>
+            <Text selectable style={[styles.toastDetail, { fontSize: scaleText(11), lineHeight: scaleText(14) }]}>
+              {toastDetail}
+            </Text>
+          </ScrollView>
         </View>
       ) : null}
 
-      <View style={styles.composer}>
+      <View
+        style={[
+          styles.composer,
+          { gap: scaleHud(8), marginHorizontal: scaleHud(28), marginBottom: scaleHud(5) },
+        ]}>
         <Pressable
           onPressIn={onPushToTalkStart}
           onPressOut={onPushToTalkEnd}
           style={({ pressed }) => [
             styles.voiceButton,
+            { width: scaleHud(46), height: scaleHud(44), borderRadius: scaleHud(6) },
             isListening && styles.voiceButtonActive,
             pressed && styles.pressed,
           ]}>
-          <Feather name="mic" size={21} color={isListening ? '#24c7d6' : '#8d75c9'} />
+          <Feather name="mic" size={scaleHud(21)} color={isListening ? '#24c7d6' : '#8d75c9'} />
         </Pressable>
 
         <TextInput
@@ -74,14 +106,28 @@ export function ChatScreen({
           multiline
           placeholder="Wiadomość lub komenda..."
           placeholderTextColor="#6f829b"
-          style={styles.messageInput}
+          style={[
+            styles.messageInput,
+            {
+              minHeight: scaleHud(44),
+              maxHeight: scaleHud(44),
+              borderRadius: scaleHud(6),
+              paddingHorizontal: scaleHud(12),
+              paddingVertical: scaleHud(6),
+              fontSize: scaleText(13),
+            },
+          ]}
         />
 
         <Pressable
           onPress={onSend}
           disabled={!canSend}
-          style={({ pressed }) => [styles.sendButton, (pressed || !canSend) && styles.pressed]}>
-          <Feather name="send" size={19} color="#24c7d6" />
+          style={({ pressed }) => [
+            styles.sendButton,
+            { width: scaleHud(58), height: scaleHud(44), gap: scaleHud(2), borderRadius: scaleHud(6) },
+            (pressed || !canSend) && styles.pressed,
+          ]}>
+          <Feather name="send" size={scaleHud(19)} color="#24c7d6" />
           <Text style={styles.sendText}>WYŚLIJ</Text>
         </Pressable>
       </View>
@@ -101,7 +147,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 18,
     paddingTop: 10,
-    paddingBottom: 8,
+    paddingBottom: 18,
   },
   coreSpace: {
     minHeight: 342,
@@ -110,16 +156,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   toast: {
-    minHeight: 28,
-    maxHeight: 42,
+    minHeight: 44,
+    maxHeight: 96,
     gap: 2,
-    marginHorizontal: 34,
-    marginBottom: 6,
+    marginHorizontal: 28,
+    marginBottom: 12,
     borderLeftWidth: 2,
     borderLeftColor: 'rgba(36, 199, 214, 0.56)',
-    backgroundColor: 'rgba(6, 18, 36, 0.34)',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: 'rgba(6, 18, 36, 0.48)',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   errorToast: {
     borderLeftColor: '#ff5b8a',
@@ -130,6 +177,9 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '900',
     letterSpacing: 1,
+  },
+  toastScroll: {
+    maxHeight: 60,
   },
   toastDetail: {
     color: '#d8edf4',

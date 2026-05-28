@@ -1,12 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
+import { useHudScale } from './HudScaleProvider';
+
 type JarvisRadarProps = {
   stateLabel: string;
   active?: boolean;
 };
 
 export function JarvisRadar({ stateLabel, active = true }: JarvisRadarProps) {
+  const { scaleHud, scaleText } = useHudScale();
   const pulse = useRef(new Animated.Value(0)).current;
   const rotate = useRef(new Animated.Value(0)).current;
 
@@ -57,7 +60,7 @@ export function JarvisRadar({ stateLabel, active = true }: JarvisRadarProps) {
   });
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, { width: scaleHud(184), paddingVertical: scaleHud(16) }]}>
       <View style={styles.cornerTopLeft} />
       <View style={styles.cornerTopRight} />
       <View style={styles.cornerBottomLeft} />
@@ -66,25 +69,26 @@ export function JarvisRadar({ stateLabel, active = true }: JarvisRadarProps) {
       <Animated.View
         style={[
           styles.radar,
+          { width: scaleHud(132), height: scaleHud(132) },
           {
             opacity: pulseOpacity,
             transform: [{ scale: pulseScale }],
           },
         ]}>
-        <View style={[styles.ring, styles.outerRing]} />
-        <View style={[styles.ring, styles.midRing]} />
-        <View style={[styles.ring, styles.innerRing]} />
-        <View style={styles.crossVertical} />
-        <View style={styles.crossHorizontal} />
-        <Animated.View style={[styles.sweep, { transform: [{ rotate: spin }] }]}>
-          <View style={styles.sweepLine} />
+        <View style={[styles.ring, { width: scaleHud(132), height: scaleHud(132) }]} />
+        <View style={[styles.ring, { width: scaleHud(94), height: scaleHud(94) }]} />
+        <View style={[styles.ring, { width: scaleHud(52), height: scaleHud(52) }]} />
+        <View style={[styles.crossVertical, { height: scaleHud(132) }]} />
+        <View style={[styles.crossHorizontal, { width: scaleHud(132) }]} />
+        <Animated.View style={[styles.sweep, { width: scaleHud(132), height: scaleHud(132), transform: [{ rotate: spin }] }]}>
+          <View style={[styles.sweepLine, { left: scaleHud(66), top: scaleHud(66), width: scaleHud(54) }]} />
         </Animated.View>
-        <View style={styles.signalDot} />
-        <View style={styles.coreGlow} />
-        <View style={styles.core} />
+        <View style={[styles.signalDot, { right: scaleHud(42), top: scaleHud(42), width: scaleHud(8), height: scaleHud(8), borderRadius: scaleHud(4) }]} />
+        <View style={[styles.coreGlow, { width: scaleHud(34), height: scaleHud(34), borderRadius: scaleHud(17) }]} />
+        <View style={[styles.core, { width: scaleHud(18), height: scaleHud(18), borderRadius: scaleHud(9), borderWidth: scaleHud(3) }]} />
       </Animated.View>
 
-      <Text selectable style={styles.label}>
+      <Text selectable style={[styles.label, { marginTop: scaleHud(14), fontSize: scaleText(11) }]}>
         {stateLabel}
       </Text>
     </View>
@@ -93,14 +97,10 @@ export function JarvisRadar({ stateLabel, active = true }: JarvisRadarProps) {
 
 const styles = StyleSheet.create({
   wrap: {
-    width: 184,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
   },
   radar: {
-    width: 132,
-    height: 132,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -110,71 +110,38 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(36, 199, 214, 0.28)',
     borderRadius: 999,
   },
-  outerRing: {
-    width: 132,
-    height: 132,
-  },
-  midRing: {
-    width: 94,
-    height: 94,
-  },
-  innerRing: {
-    width: 52,
-    height: 52,
-  },
   crossVertical: {
     position: 'absolute',
     width: 1,
-    height: 132,
     backgroundColor: 'rgba(36, 199, 214, 0.14)',
   },
   crossHorizontal: {
     position: 'absolute',
-    width: 132,
     height: 1,
     backgroundColor: 'rgba(36, 199, 214, 0.14)',
   },
   sweep: {
     position: 'absolute',
-    width: 132,
-    height: 132,
   },
   sweepLine: {
     position: 'absolute',
-    left: 66,
-    top: 66,
-    width: 54,
     height: 2,
     backgroundColor: '#24c7d6',
   },
   signalDot: {
     position: 'absolute',
-    right: 42,
-    top: 42,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
     backgroundColor: '#1fd19b',
   },
   coreGlow: {
     position: 'absolute',
-    width: 34,
-    height: 34,
-    borderRadius: 17,
     backgroundColor: 'rgba(36, 199, 214, 0.12)',
   },
   core: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 3,
     borderColor: '#24c7d6',
     backgroundColor: '#061224',
   },
   label: {
-    marginTop: 14,
     color: '#24c7d6',
-    fontSize: 11,
     fontWeight: '900',
     letterSpacing: 3,
     textAlign: 'center',

@@ -3,6 +3,7 @@ import { Feather } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HudButton } from '@/components/HudButton';
+import { useHudScale } from '@/components/HudScaleProvider';
 import { MOBILE_APPS, type MobileAppKey } from '@/services/mobileLinks';
 import type { ControlMode } from '@/services/storage';
 
@@ -51,6 +52,7 @@ const APP_CATEGORIES: AppCategory[] = [
 const ALL_APP_KEYS = APP_CATEGORIES.flatMap((category) => category.keys);
 
 export function AppsScreen({ controlMode, loading, onAction }: AppsScreenProps) {
+  const { scaleHud, scaleText } = useHudScale();
   const [searchText, setSearchText] = useState('');
   const [activeCategory, setActiveCategory] = useState(APP_CATEGORIES[0].title);
 
@@ -65,19 +67,19 @@ export function AppsScreen({ controlMode, loading, onAction }: AppsScreenProps) 
 
   return (
     <View style={styles.screen}>
-      <View style={styles.topControls}>
-        <View style={styles.searchBox}>
-          <Feather name="search" size={16} color="#6fa6bb" />
+      <View style={[styles.topControls, { gap: scaleHud(10), paddingHorizontal: scaleHud(18), paddingTop: scaleHud(14) }]}>
+        <View style={[styles.searchBox, { minHeight: scaleHud(42), gap: scaleHud(8), borderRadius: scaleHud(8), paddingHorizontal: scaleHud(12) }]}>
+          <Feather name="search" size={scaleHud(16)} color="#6fa6bb" />
           <TextInput
             value={searchText}
             onChangeText={setSearchText}
             placeholder="Szukaj aplikacji..."
             placeholderTextColor="#60758d"
-            style={styles.searchInput}
+            style={[styles.searchInput, { fontSize: scaleText(14), paddingVertical: scaleHud(8) }]}
           />
           {searchText ? (
             <Pressable onPress={() => setSearchText('')} hitSlop={10}>
-              <Feather name="x" size={15} color="#8d75c9" />
+            <Feather name="x" size={scaleHud(15)} color="#8d75c9" />
             </Pressable>
           ) : null}
         </View>
@@ -85,7 +87,7 @@ export function AppsScreen({ controlMode, loading, onAction }: AppsScreenProps) 
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryChips}
+          contentContainerStyle={[styles.categoryChips, { gap: scaleHud(8), paddingRight: scaleHud(18) }]}
           keyboardShouldPersistTaps="handled">
           {APP_CATEGORIES.map((category) => {
             const active = !query && activeCategory === category.title;
@@ -96,12 +98,13 @@ export function AppsScreen({ controlMode, loading, onAction }: AppsScreenProps) 
                 onPress={() => setActiveCategory(category.title)}
                 style={({ pressed }) => [
                   styles.categoryChip,
+                  { minHeight: scaleHud(34), borderRadius: scaleHud(8), paddingHorizontal: scaleHud(12) },
                   active && styles.categoryChipActive,
                   pressed && styles.pressed,
                 ]}>
                 <Text
                   numberOfLines={1}
-                  style={[styles.categoryChipText, active && styles.categoryChipTextActive]}>
+                  style={[styles.categoryChipText, { fontSize: scaleText(12) }, active && styles.categoryChipTextActive]}>
                   {category.title}
                 </Text>
               </Pressable>
@@ -111,49 +114,47 @@ export function AppsScreen({ controlMode, loading, onAction }: AppsScreenProps) 
       </View>
 
       <ScrollView
-        style={styles.panelScroll}
-        contentContainerStyle={styles.appsContent}
+        style={[styles.panelScroll, { marginTop: scaleHud(12) }]}
+        contentContainerStyle={[styles.appsContent, { gap: scaleHud(10), paddingHorizontal: scaleHud(18), paddingBottom: scaleHud(18) }]}
         keyboardShouldPersistTaps="handled">
         {visibleAppKeys.map((appKey) => {
           const app = MOBILE_APPS[appKey];
 
           return (
-            <View key={appKey} style={styles.appRow}>
+            <View key={appKey} style={[styles.appRow, { minHeight: scaleHud(74), gap: scaleHud(10), borderRadius: scaleHud(9), paddingHorizontal: scaleHud(12), paddingVertical: scaleHud(9) }]}>
               <View style={styles.appText}>
-                <Text selectable style={styles.appName}>
+                <Text selectable style={[styles.appName, { fontSize: scaleText(17) }]}>
                   {app.label}
                 </Text>
-                <Text style={styles.appMode}>
+                <Text style={[styles.appMode, { fontSize: scaleText(11), lineHeight: scaleText(16) }]}>
                   {controlMode === 'pc' ? 'Backend PC' : 'Telefon lokalnie'}
                 </Text>
               </View>
 
-              <View style={styles.appActions}>
+              <View style={[styles.appActions, { width: scaleHud(130), gap: scaleHud(7) }]}>
                 <HudButton
                   title="Otwórz"
                   onPress={() => onAction(appKey, 'otwórz')}
                   disabled={loading}
-                  style={styles.appButton}
+                  style={[styles.appButton, { minHeight: scaleHud(34) }]}
                 />
 
-                {controlMode === 'pc' ? (
-                  <HudButton
-                    title="Zamknij"
-                    variant="secondary"
-                    onPress={() => onAction(appKey, 'zamknij')}
-                    disabled={loading}
-                    style={styles.appButton}
-                  />
-                ) : null}
+                <HudButton
+                  title="Zamknij"
+                  variant="secondary"
+                  onPress={() => onAction(appKey, 'zamknij')}
+                  disabled={loading}
+                  style={[styles.appButton, { minHeight: scaleHud(34) }]}
+                />
               </View>
             </View>
           );
         })}
 
         {visibleAppKeys.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>Brak aplikacji</Text>
-            <Text style={styles.emptyText}>
+          <View style={[styles.emptyState, { minHeight: scaleHud(92), gap: scaleHud(4), borderRadius: scaleHud(9) }]}>
+            <Text style={[styles.emptyTitle, { fontSize: scaleText(15) }]}>Brak aplikacji</Text>
+            <Text style={[styles.emptyText, { fontSize: scaleText(12) }]}>
               {query ? 'Zmień frazę wyszukiwania.' : 'Ta kategoria jest pusta.'}
             </Text>
           </View>

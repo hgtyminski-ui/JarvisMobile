@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { HudBackground } from '@/components/HudBackground';
 import { HudButton } from '@/components/HudButton';
 import { HudPanel } from '@/components/HudPanel';
+import { HudScaleProvider, useHudScale } from '@/components/HudScaleProvider';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import {
@@ -18,6 +19,7 @@ import {
   getPhonePending,
   getStatus,
   sendProcessText,
+  sendProcessTextDetailed,
   toggleApp,
   type ApiConfig,
   type HistoryItem,
@@ -33,13 +35,26 @@ import {
 } from '@/services/mobileLinks';
 import {
   clearSettings as clearStoredSettings,
+  clearPendingNoteDraft as clearStoredPendingNoteDraft,
   DEFAULT_API_TOKEN,
   DEFAULT_BACKEND_URL,
   DEFAULT_CONTROL_MODE,
   DEFAULT_DEVICE_ID,
+  DEFAULT_HUD_SCALE,
+  DEFAULT_MICROPHONE_ENABLED,
+  DEFAULT_PTT_MODE,
+  DEFAULT_SHOW_STATUS_PANEL,
+  DEFAULT_TEXT_SCALE,
+  DEFAULT_VOICE_ENABLED,
+  DEFAULT_VOICE_LANGUAGE,
+  DEFAULT_VOICE_PITCH,
+  DEFAULT_VOICE_RATE,
   loadSettings,
+  loadPendingNoteDraft,
+  savePendingNoteDraft as saveStoredPendingNoteDraft,
   saveSettings as saveStoredSettings,
   type ControlMode,
+  type PendingNoteDraft,
 } from '@/services/storage';
 import { AppsScreen } from '@/screens/AppsScreen';
 import { ChatScreen } from '@/screens/ChatScreen';
@@ -87,11 +102,57 @@ function formatAgentStatus(status: AgentStatus) {
   return 'Brak danych';
 }
 
+function normalizeText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function isBareNoteRequest(value: string) {
+  const normalized = normalizeText(value);
+
+  return normalized === 'zapisz notatke' || normalized === 'dodaj notatke';
+}
+
+function isCancelPendingNoteRequest(value: string) {
+  const normalized = normalizeText(value);
+
+  return normalized === 'anuluj' || normalized === 'cancel';
+}
+
+function looksLikeSavedNoteResponse(value: string) {
+  const normalized = normalizeText(value);
+
+  return (
+    normalized.includes('notatk') &&
+    (normalized.includes('zapis') ||
+      normalized.includes('dod') ||
+      normalized.includes('utworz'))
+  );
+}
+
+function parseScaleValue(value: string, fallback = 1) {
+  const parsed = Number.parseFloat(value);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export default function HomeScreen() {
   const [backendUrl, setBackendUrl] = useState(DEFAULT_BACKEND_URL);
   const [apiToken, setApiToken] = useState(DEFAULT_API_TOKEN);
   const [deviceId, setDeviceId] = useState(DEFAULT_DEVICE_ID);
   const [controlMode, setControlMode] = useState<ControlMode>(DEFAULT_CONTROL_MODE);
+  const [textScale, setTextScale] = useState(DEFAULT_TEXT_SCALE);
+  const [hudScale, setHudScale] = useState(DEFAULT_HUD_SCALE);
+  const [showStatusPanel, setShowStatusPanel] = useState(DEFAULT_SHOW_STATUS_PANEL);
+  const [voiceEnabled, setVoiceEnabled] = useState(DEFAULT_VOICE_ENABLED);
+  const [voiceLanguage, setVoiceLanguage] = useState(DEFAULT_VOICE_LANGUAGE);
+  const [voiceRate, setVoiceRate] = useState(DEFAULT_VOICE_RATE);
+  const [voicePitch, setVoicePitch] = useState(DEFAULT_VOICE_PITCH);
+  const [microphoneEnabled, setMicrophoneEnabled] = useState(DEFAULT_MICROPHONE_ENABLED);
+  const [pttMode, setPttMode] = useState(DEFAULT_PTT_MODE);
   const [message, setMessage] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -107,6 +168,7 @@ export default function HomeScreen() {
   const [newNoteTitle, setNewNoteTitle] = useState('');
   const [newNoteContent, setNewNoteContent] = useState('');
   const [isNewNoteOpen, setIsNewNoteOpen] = useState(false);
+  const [pendingNoteDraft, setPendingNoteDraft] = useState<PendingNoteDraft | null>(null);
   const skipNextSettingsSave = useRef(false);
   const pollingInFlight = useRef(false);
   const agentsStatusInFlight = useRef(false);
@@ -116,6 +178,16 @@ export default function HomeScreen() {
   const apiConfig = useMemo<ApiConfig>(
     () => ({ backendUrl, apiToken, deviceId }),
     [apiToken, backendUrl, deviceId]
+  );
+  const resolvedTextScale = parseScaleValue(textScale);
+  const resolvedHudScale = parseScaleValue(hudScale);
+  const scaleText = useCallback(
+    (size: number) => Math.round(size * resolvedTextScale),
+    [resolvedTextScale]
+  );
+  const scaleHud = useCallback(
+    (size: number) => Math.round(size * resolvedHudScale),
+    [resolvedHudScale]
   );
   const canSend = useMemo(() => message.trim().length > 0 && !loading, [loading, message]);
   const voiceStatus = useMemo(() => {
@@ -168,9 +240,13 @@ export default function HomeScreen() {
           onFallback: () => {
             addHistory('Telefon', 'Nie udało się otworzyć aplikacji, otwieram wersję web.', true);
           },
-        });
-      } catch {
-        addHistory('Telefon', 'Nie udało się otworzyć aplikacji ani strony.', true);
+      });
+    } catch (error) {
+        addHistory(
+          'Telefon',
+          error instanceof Error ? error.message : 'Nie udało się otworzyć aplikacji ani strony.',
+          true
+        );
       }
     },
     [addHistory]
@@ -215,6 +291,21 @@ export default function HomeScreen() {
         setApiToken(settings.apiToken);
         setDeviceId(settings.deviceId);
         setControlMode(settings.controlMode);
+        setTextScale(settings.textScale);
+        setHudScale(settings.hudScale);
+        setShowStatusPanel(settings.showStatusPanel);
+        setVoiceEnabled(settings.voiceEnabled);
+        setVoiceLanguage(settings.voiceLanguage);
+        setVoiceRate(settings.voiceRate);
+        setVoicePitch(settings.voicePitch);
+        setMicrophoneEnabled(settings.microphoneEnabled);
+        setPttMode(settings.pttMode);
+
+        const draft = await loadPendingNoteDraft();
+
+        if (isMounted) {
+          setPendingNoteDraft(draft);
+        }
       } catch {
         if (isMounted) {
           addHistory('Ustawienia', 'Nie udało się wczytać ustawień.', true);
@@ -245,16 +336,55 @@ export default function HomeScreen() {
         backendUrl === DEFAULT_BACKEND_URL &&
         apiToken === DEFAULT_API_TOKEN &&
         deviceId === DEFAULT_DEVICE_ID &&
-        controlMode === DEFAULT_CONTROL_MODE
+        controlMode === DEFAULT_CONTROL_MODE &&
+        textScale === DEFAULT_TEXT_SCALE &&
+        hudScale === DEFAULT_HUD_SCALE &&
+        showStatusPanel === DEFAULT_SHOW_STATUS_PANEL &&
+        voiceEnabled === DEFAULT_VOICE_ENABLED &&
+        voiceLanguage === DEFAULT_VOICE_LANGUAGE &&
+        voiceRate === DEFAULT_VOICE_RATE &&
+        voicePitch === DEFAULT_VOICE_PITCH &&
+        microphoneEnabled === DEFAULT_MICROPHONE_ENABLED &&
+        pttMode === DEFAULT_PTT_MODE
       ) {
         return;
       }
     }
 
-    saveStoredSettings({ backendUrl, apiToken, deviceId, controlMode }).catch(() => {
+    saveStoredSettings({
+      backendUrl,
+      apiToken,
+      deviceId,
+      controlMode,
+      textScale,
+      hudScale,
+      showStatusPanel,
+      voiceEnabled,
+      voiceLanguage,
+      voiceRate,
+      voicePitch,
+      microphoneEnabled,
+      pttMode,
+    }).catch(() => {
       addHistory('Ustawienia', 'Nie udało się zapisać ustawień.', true);
     });
-  }, [addHistory, apiToken, backendUrl, controlMode, deviceId, settingsLoaded]);
+  }, [
+    addHistory,
+    apiToken,
+    backendUrl,
+    controlMode,
+    deviceId,
+    hudScale,
+    microphoneEnabled,
+    pttMode,
+    settingsLoaded,
+    showStatusPanel,
+    textScale,
+    voiceEnabled,
+    voiceLanguage,
+    voicePitch,
+    voiceRate,
+  ]);
 
   useEffect(() => {
     refreshAgentsStatus();
@@ -401,11 +531,44 @@ export default function HomeScreen() {
     [apiConfig, loadNotesList]
   );
 
+  const clearPendingNote = useCallback(async () => {
+    setPendingNoteDraft(null);
+    await clearStoredPendingNoteDraft();
+  }, []);
+
+  const savePendingNoteWithTitle = useCallback(
+    async (title: string) => {
+      const cleanTitle = title.trim();
+
+      if (!pendingNoteDraft || pendingNoteDraft.waitingFor !== 'title' || !cleanTitle) {
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        await createBackendNote(apiConfig, {
+          title: cleanTitle,
+          content: pendingNoteDraft.content,
+        });
+        await clearPendingNote();
+        setMessage('');
+        addHistory('Notatki', `Zapisałem notatkę: ${cleanTitle}`);
+        await loadNotesList(true);
+      } catch {
+        addHistory('Notatki', 'Nie udało się zapisać notatki. Spróbuj ponownie.', true);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [addHistory, apiConfig, clearPendingNote, loadNotesList, pendingNoteDraft]
+  );
+
   useEffect(() => {
     if (activeTab === 'notes' && settingsLoaded) {
-      loadNotesList(notes.length === 0);
+      loadNotesList(false);
     }
-  }, [activeTab, loadNotesList, notes.length, settingsLoaded]);
+  }, [activeTab, loadNotesList, settingsLoaded]);
 
   useEffect(() => {
     const text = speech.recognizedText.trim();
@@ -448,6 +611,15 @@ export default function HomeScreen() {
     setApiToken(DEFAULT_API_TOKEN);
     setDeviceId(DEFAULT_DEVICE_ID);
     setControlMode(DEFAULT_CONTROL_MODE);
+    setTextScale(DEFAULT_TEXT_SCALE);
+    setHudScale(DEFAULT_HUD_SCALE);
+    setShowStatusPanel(DEFAULT_SHOW_STATUS_PANEL);
+    setVoiceEnabled(DEFAULT_VOICE_ENABLED);
+    setVoiceLanguage(DEFAULT_VOICE_LANGUAGE);
+    setVoiceRate(DEFAULT_VOICE_RATE);
+    setVoicePitch(DEFAULT_VOICE_PITCH);
+    setMicrophoneEnabled(DEFAULT_MICROPHONE_ENABLED);
+    setPttMode(DEFAULT_PTT_MODE);
     addHistory('Ustawienia', 'Ustawienia wyczyszczone.');
   }
 
@@ -461,10 +633,29 @@ export default function HomeScreen() {
     setLoading(true);
 
     try {
-      const detail = await sendProcessText(apiConfig, cleanText);
+      const result = await sendProcessTextDetailed(apiConfig, cleanText);
+      const detail = result.response;
 
       addHistory('Jarvis', detail);
       setMessage('');
+
+      if (
+        result.status === 'need_input' &&
+        result.missing === 'title' &&
+        result.draft?.content
+      ) {
+        const draft: PendingNoteDraft = {
+          content: result.draft.content,
+          waitingFor: 'title',
+        };
+
+        setPendingNoteDraft(draft);
+        await saveStoredPendingNoteDraft(draft);
+      }
+
+      if (looksLikeSavedNoteResponse(detail)) {
+        await loadNotesList(true);
+      }
     } catch (error) {
       addHistory(
         'Jarvis',
@@ -479,6 +670,33 @@ export default function HomeScreen() {
 
   function sendMessage() {
     const cleanText = message.trim();
+
+    if (pendingNoteDraft?.waitingFor === 'title') {
+      if (isCancelPendingNoteRequest(cleanText)) {
+        setMessage('');
+        clearPendingNote()
+          .then(() => {
+            addHistory('Notatki', 'Anulowano zapisywanie notatki.');
+          })
+          .catch(() => {
+            addHistory('Notatki', 'Anulowano zapisywanie notatki.');
+          });
+        return;
+      }
+
+      savePendingNoteWithTitle(cleanText);
+      return;
+    }
+
+    if (isBareNoteRequest(cleanText)) {
+      setMessage('');
+      setNewNoteContent('');
+      setIsNewNoteOpen(true);
+      setActiveTab('notes');
+      setNotesStatus('Podaj tytuł notatki.');
+      addHistory('Notatki', 'Podaj tytuł notatki.');
+      return;
+    }
 
     if (controlMode === 'phone') {
       const phoneApp = getMobileAppFromCommand(cleanText);
@@ -498,12 +716,26 @@ export default function HomeScreen() {
 
   function sendAppAction(appKey: MobileAppKey, action: 'otwórz' | 'zamknij') {
     if (controlMode === 'phone') {
+      if (action === 'zamknij') {
+        addHistory(
+          'Telefon',
+          'Zamykanie aplikacji telefonu wymaga Tasker/MacroDroid lub Accessibility.',
+          true
+        );
+        return;
+      }
+
       openPhoneAppWithHistory(appKey);
       return;
     }
 
     setLoading(true);
-    toggleApp(apiConfig, appKey, action)
+    const actionRequest =
+      appKey === 'whatsapp' && action === 'zamknij'
+        ? sendProcessText(apiConfig, 'zamknij whatsapp')
+        : toggleApp(apiConfig, appKey, action);
+
+    actionRequest
       .then((detail) => {
         addHistory('Command', detail);
       })
@@ -520,18 +752,20 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.app} edges={['top', 'bottom']}>
       <StatusBar hidden />
       <HudBackground />
+      <HudScaleProvider textScale={textScale} hudScale={hudScale}>
       <KeyboardAvoidingView style={styles.keyboard} behavior="padding">
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
+      <View style={[styles.header, { gap: scaleHud(9), paddingHorizontal: scaleHud(24), paddingTop: scaleHud(10), paddingBottom: scaleHud(7) }]}>
+        <View style={[styles.headerTop, { minHeight: scaleHud(56), gap: scaleHud(16) }]}>
           <View>
-            <Text style={styles.kicker}>LOCAL AI CONTROL</Text>
-            <Text style={styles.title}>JARVIS MOBILE</Text>
+            <Text style={[styles.kicker, { fontSize: scaleText(11), letterSpacing: scaleText(4) }]}>LOCAL AI CONTROL</Text>
+            <Text style={[styles.title, { fontSize: scaleText(28), letterSpacing: scaleText(7) }]}>JARVIS MOBILE</Text>
           </View>
-          {loading ? <ActivityIndicator color="#22f2ff" style={styles.loadingIndicator} /> : null}
+          {loading ? <ActivityIndicator color="#22f2ff" style={[styles.loadingIndicator, { top: scaleHud(18) }]} /> : null}
         </View>
 
+        {showStatusPanel ? (
         <Pressable onPress={checkStatus} disabled={loading}>
-          <HudPanel style={styles.statusPanel}>
+            <HudPanel style={[styles.statusPanel, { minHeight: scaleHud(44), gap: scaleHud(8), paddingHorizontal: scaleHud(8), paddingVertical: scaleHud(5) }]}>
             <StatusBadge
               label={`Połączenie z PC: ${pcConnectionStatus}`}
               status={pcConnectionStatus === 'aktywne' ? 'online' : 'offline'}
@@ -548,21 +782,22 @@ export default function HomeScreen() {
             />
           </HudPanel>
         </Pressable>
+        ) : null}
 
-        <View style={styles.modeSwitch}>
+        <View style={[styles.modeSwitch, { gap: scaleHud(10), paddingHorizontal: scaleHud(20) }]}>
           <HudButton
             title="Steruj PC"
             active={controlMode === 'pc'}
             variant="ghost"
             onPress={() => setControlMode('pc')}
-            style={styles.modeButton}
+            style={[styles.modeButton, { minHeight: scaleHud(36) }]}
           />
           <HudButton
             title="Steruj telefonem"
             active={controlMode === 'phone'}
             variant="ghost"
             onPress={() => setControlMode('phone')}
-            style={styles.modeButton}
+            style={[styles.modeButton, { minHeight: scaleHud(36) }]}
           />
         </View>
       </View>
@@ -610,16 +845,34 @@ export default function HomeScreen() {
             apiToken={apiToken}
             deviceId={deviceId}
             controlMode={controlMode}
+            textScale={textScale}
+            hudScale={hudScale}
+            showStatusPanel={showStatusPanel}
+            voiceEnabled={voiceEnabled}
+            voiceLanguage={voiceLanguage}
+            voiceRate={voiceRate}
+            voicePitch={voicePitch}
+            microphoneEnabled={microphoneEnabled}
+            pttMode={pttMode}
             onBackendUrlChange={setBackendUrl}
             onApiTokenChange={setApiToken}
             onDeviceIdChange={setDeviceId}
             onControlModeChange={setControlMode}
+            onTextScaleChange={setTextScale}
+            onHudScaleChange={setHudScale}
+            onShowStatusPanelChange={setShowStatusPanel}
+            onVoiceEnabledChange={setVoiceEnabled}
+            onVoiceLanguageChange={setVoiceLanguage}
+            onVoiceRateChange={setVoiceRate}
+            onVoicePitchChange={setVoicePitch}
+            onMicrophoneEnabledChange={setMicrophoneEnabled}
+            onPttModeChange={setPttMode}
             onClearSettings={clearSettings}
           />
         ) : null}
       </View>
 
-      <View style={styles.bottomNav}>
+      <View style={[styles.bottomNav, { gap: scaleHud(6), marginHorizontal: scaleHud(18), marginBottom: scaleHud(7), borderRadius: scaleHud(8), paddingHorizontal: scaleHud(8), paddingTop: scaleHud(9), paddingBottom: scaleHud(7) }]}>
         <NavButton
           title="Chat"
           icon="message-circle"
@@ -646,6 +899,7 @@ export default function HomeScreen() {
         />
       </View>
       </KeyboardAvoidingView>
+      </HudScaleProvider>
     </SafeAreaView>
   );
 }
@@ -658,18 +912,27 @@ type NavButtonProps = {
 };
 
 function NavButton({ title, icon, active, onPress }: NavButtonProps) {
+  const { scaleHud, scaleText } = useHudScale();
   const color = active ? '#24c7d6' : '#8896b4';
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.navButton, pressed && styles.navButtonPressed]}>
-      <Feather name={icon} size={22} color={color} />
+      style={({ pressed }) => [
+        styles.navButton,
+        { minHeight: scaleHud(54), gap: scaleHud(4), paddingHorizontal: scaleHud(2) },
+        pressed && styles.navButtonPressed,
+      ]}>
+      <Feather name={icon} size={scaleHud(22)} color={color} />
       <Text
         numberOfLines={1}
         adjustsFontSizeToFit
         minimumFontScale={0.72}
-        style={[styles.navButtonText, active ? styles.navButtonTextActive : styles.navButtonTextInactive]}>
+        style={[
+          styles.navButtonText,
+          { fontSize: scaleText(12), lineHeight: scaleText(14) },
+          active ? styles.navButtonTextActive : styles.navButtonTextInactive,
+        ]}>
         {title}
       </Text>
     </Pressable>
@@ -685,88 +948,58 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    gap: 9,
-    paddingHorizontal: 24,
-    paddingTop: 10,
-    paddingBottom: 7,
   },
   headerTop: {
-    minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
   },
   loadingIndicator: {
     position: 'absolute',
     right: 0,
-    top: 18,
   },
   kicker: {
     color: '#8d75c9',
-    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 4,
     textAlign: 'center',
   },
   title: {
     color: '#24c7d6',
-    fontSize: 28,
     fontWeight: '300',
-    letterSpacing: 7,
     textAlign: 'center',
   },
   statusPanel: {
-    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
   },
   modeSwitch: {
     flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
   },
   modeButton: {
     flex: 1,
-    minHeight: 36,
   },
   main: {
     flex: 1,
   },
   bottomNav: {
     flexDirection: 'row',
-    gap: 6,
-    marginHorizontal: 18,
-    marginBottom: 7,
     borderWidth: 1,
     borderColor: 'rgba(36, 199, 214, 0.28)',
-    borderRadius: 8,
     backgroundColor: 'rgba(3, 8, 20, 0.82)',
-    paddingHorizontal: 8,
-    paddingTop: 9,
-    paddingBottom: 7,
   },
   navButton: {
     flex: 1,
-    minHeight: 54,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
-    paddingHorizontal: 2,
   },
   navButtonPressed: {
     opacity: 0.62,
   },
   navButtonText: {
-    fontSize: 12,
     fontWeight: '800',
     letterSpacing: 0,
     textAlign: 'center',
-    lineHeight: 14,
   },
   navButtonTextActive: {
     color: '#24c7d6',

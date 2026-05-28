@@ -28,6 +28,15 @@ export type NoteDetail = NoteSummary & {
   content: string;
 };
 
+export type ProcessTextResult = {
+  response: string;
+  status?: string;
+  missing?: string;
+  draft?: {
+    content?: string;
+  };
+};
+
 type AppAction = 'otwórz' | 'zamknij';
 
 function trimSlash(value: string) {
@@ -91,7 +100,7 @@ async function readTextOrJson(response: Response) {
   }
 }
 
-export async function parseApiResponse(response: Response) {
+export async function parseApiResponse(response: Response, path = '') {
   const payload = await readTextOrJson(response);
 
   let message = 'OK';
@@ -112,6 +121,10 @@ export async function parseApiResponse(response: Response) {
     }
   } else if (payload !== null) {
     message = readStringField(payload) || 'OK';
+  }
+
+  if (path.startsWith('/notes') && response.status === 404) {
+    throw new Error('Notatki nie są dostępne w tym Hubie.');
   }
 
   if (!response.ok) {
@@ -138,7 +151,7 @@ async function requestMessage(config: ApiConfig, path: string, options?: Request
     throw new Error('Unauthorized');
   }
 
-  return parseApiResponse(response);
+  return parseApiResponse(response, path);
 }
 
 async function requestJson(config: ApiConfig, path: string, options?: RequestInit) {
@@ -161,6 +174,10 @@ async function requestJson(config: ApiConfig, path: string, options?: RequestIni
 
   if (response.status === 401 || response.status === 403) {
     throw new Error('Unauthorized');
+  }
+
+  if (path.startsWith('/notes') && response.status === 404) {
+    throw new Error('Notatki nie są dostępne w tym Hubie.');
   }
 
   if (!response.ok) {
@@ -191,12 +208,19 @@ function getNoteCreatedAt(note: Record<string, unknown>) {
   return note.created_at ?? note.createdAt ?? note.created ?? note.timestamp ?? '';
 }
 
-function normalizeNoteSummary(value: unknown): NoteSummary | null {
+function normalizeNoteSummary(value: unknown, index = 0): NoteSummary | null {
   if (!isRecord(value)) {
     return null;
   }
 
-  const id = readStringField(value.id ?? value.note_id);
+  const title = readStringField(value.title ?? value.name ?? value.subject) || 'Bez tytułu';
+  const createdAt = formatNoteDate(getNoteCreatedAt(value));
+  const id =
+    readStringField(
+      value.id ?? value.note_id ?? value.uuid ?? value.key ?? value.filename ?? value.file ?? value.path
+    ) || `${title}-${createdAt}-${index}`;
+  value.title = title;
+  value.createdAt = createdAt;
 
   if (!id) {
     return null;
@@ -284,6 +308,55 @@ export async function sendProcessText(config: ApiConfig, text: string) {
       device_id: config.deviceId.trim() || 'hubert-pc',
     }),
   });
+}
+
+export async function sendProcessTextDetailed(
+  config: ApiConfig,
+  text: string
+): Promise<ProcessTextResult> {
+  const response = await fetchBackend(config, '/process-text', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Jarvis-Token': config.apiToken,
+    },
+    body: JSON.stringify({
+      text,
+      device_id: config.deviceId.trim() || 'hubert-pc',
+    }),
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error('Unauthorized');
+  }
+
+  const payload = await readTextOrJson(response);
+
+  if (!response.ok) {
+    const detail = isRecord(payload)
+      ? readStringField(payload.detail ?? payload.response)
+      : readStringField(payload);
+    throw new Error(detail || `Błąd backendu: ${response.status}`);
+  }
+
+  if (!isRecord(payload)) {
+    return {
+      response: readStringField(payload) || 'OK',
+    };
+  }
+
+  const draft = isRecord(payload.draft) ? payload.draft : null;
+
+  return {
+    response: readStringField(payload.response ?? payload.detail ?? payload.message) || 'OK',
+    status: readStringField(payload.status),
+    missing: readStringField(payload.missing),
+    draft: draft
+      ? {
+          content: readStringField(draft.content ?? draft.text ?? draft.body),
+        }
+      : undefined,
+  };
 }
 
 export async function getApps(config: ApiConfig) {

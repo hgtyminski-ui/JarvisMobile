@@ -56,6 +56,12 @@ export type OpenMobileAppResult = {
 };
 
 const OPEN_COMMAND_PREFIXES = ['open', 'otw\u00f3rz', 'otworz', 'uruchom', 'odpal'];
+const WHATSAPP_LINKS = [
+  { url: 'whatsapp://', checkCanOpen: true },
+  { url: 'whatsapp://send', checkCanOpen: true },
+  { url: 'intent://send/#Intent;scheme=whatsapp;package=com.whatsapp;end', checkCanOpen: false },
+  { url: 'market://details?id=com.whatsapp', checkCanOpen: false },
+];
 
 export function isMobileAppKey(value: string): value is MobileAppKey {
   return value in MOBILE_APPS;
@@ -74,11 +80,44 @@ export function getMobileAppFromCommand(text: string) {
   return isMobileAppKey(appName) ? appName : null;
 }
 
+async function tryOpenUrl(url: string, checkCanOpen = true) {
+  if (checkCanOpen) {
+    const canOpen = await Linking.canOpenURL(url);
+
+    if (!canOpen) {
+      return false;
+    }
+  }
+
+  await Linking.openURL(url);
+  return true;
+}
+
+async function openWhatsApp(): Promise<OpenMobileAppResult> {
+  for (const [index, link] of WHATSAPP_LINKS.entries()) {
+    try {
+      const opened = await tryOpenUrl(link.url, link.checkCanOpen);
+
+      if (opened) {
+        return { label: MOBILE_APPS.whatsapp.label, usedFallback: index > 0 };
+      }
+    } catch {
+      // Try the next WhatsApp-compatible Android link.
+    }
+  }
+
+  throw new Error('Nie udało się otworzyć WhatsApp.');
+}
+
 export async function openMobileApp(
   target: MobileAppKey,
   options?: { onFallback?: () => void }
 ): Promise<OpenMobileAppResult> {
   const app = MOBILE_APPS[target];
+
+  if (target === 'whatsapp') {
+    return openWhatsApp();
+  }
 
   try {
     await Linking.openURL(app.deepLink);

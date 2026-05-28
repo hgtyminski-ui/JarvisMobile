@@ -1,5 +1,7 @@
 import { Pressable, StyleSheet, Text, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
 
+import { useHudScale } from './HudScaleProvider';
+
 type HudButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
 type HudButtonProps = PressableProps & {
@@ -17,6 +19,8 @@ export function HudButton({
   style,
   ...props
 }: HudButtonProps) {
+  const { scaleHud, scaleText } = useHudScale();
+
   return (
     <Pressable
       {...props}
@@ -24,6 +28,11 @@ export function HudButton({
       style={({ pressed }) => [
         styles.button,
         styles[variant],
+        {
+          minHeight: scaleHud(38),
+          borderRadius: scaleHud(9),
+          paddingHorizontal: scaleHud(10),
+        },
         active && styles.active,
         (pressed || disabled) && styles.pressed,
         style,
@@ -32,7 +41,12 @@ export function HudButton({
         numberOfLines={1}
         adjustsFontSizeToFit
         minimumFontScale={0.72}
-        style={[styles.text, variant === 'primary' && styles.primaryText, active && styles.activeText]}>
+        style={[
+          styles.text,
+          { fontSize: scaleText(13), lineHeight: scaleText(16) },
+          variant === 'primary' && styles.primaryText,
+          active && styles.activeText,
+        ]}>
         {title}
       </Text>
     </Pressable>
@@ -41,12 +55,9 @@ export function HudButton({
 
 const styles = StyleSheet.create({
   button: {
-    minHeight: 38,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderRadius: 9,
-    paddingHorizontal: 10,
   },
   primary: {
     borderColor: 'rgba(36, 199, 214, 0.64)',
@@ -73,10 +84,8 @@ const styles = StyleSheet.create({
   },
   text: {
     color: '#8d75c9',
-    fontSize: 13,
     fontWeight: '900',
     textAlign: 'center',
-    lineHeight: 16,
   },
   primaryText: {
     color: '#24c7d6',
