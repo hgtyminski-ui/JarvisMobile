@@ -45,11 +45,10 @@
         }
       ],
       [
-        "@react-native-voice/voice",
+        "expo-speech-recognition",
         {
-          "microphonePermission": "Jarvis potrzebuje dostępu do mikrofonu, żeby rozpoznawać mowę.",
-          "speechRecognitionPermission": "Jarvis potrzebuje rozpoznawania mowy.",
-          "androidX": true
+          "microphonePermission": "Jarvis potrzebuje dostępu do mikrofonu.",
+          "speechRecognitionPermission": "Jarvis potrzebuje rozpoznawania mowy."
         }
       ]
     ],
