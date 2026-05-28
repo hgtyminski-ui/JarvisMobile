@@ -947,7 +947,10 @@ export default function HomeScreen() {
                 coreStatus={coreStatus}
                 onMessageChange={setMessage}
                 onSend={sendMessage}
-                onPushToTalkStart={speech.startListening}
+                onPushToTalkStart={async () => {
+                  await stopJarvisSpeech();
+                  await speech.startListening();
+                }}
                 onPushToTalkEnd={speech.stopListening}
               />
             ) : null}
