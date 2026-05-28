@@ -214,23 +214,29 @@ export default function HomeScreen() {
   const pollingInFlight = useRef(false);
   const backendStatusInFlight = useRef(false);
   const lastRecognizedText = useRef('');
+  const lastAutoSentText = useRef('');
   const speech = useSpeechRecognition();
 
   const apiConfig = useMemo<ApiConfig>(
     () => ({ backendUrl, apiToken, deviceId }),
     [apiToken, backendUrl, deviceId]
   );
+
   const resolvedTextScale = parseScaleValue(textScale);
   const resolvedHudScale = parseScaleValue(hudScale);
+
   const scaleText = useCallback(
     (size: number) => Math.round(size * resolvedTextScale),
     [resolvedTextScale]
   );
+
   const scaleHud = useCallback(
     (size: number) => Math.round(size * resolvedHudScale),
     [resolvedHudScale]
   );
+
   const canSend = useMemo(() => message.trim().length > 0 && !loading, [loading, message]);
+
   const voiceStatus = useMemo(() => {
     if (speech.isListening) {
       return 'Słucham...';
@@ -246,6 +252,7 @@ export default function HomeScreen() {
 
     return '';
   }, [speech.error, speech.isListening, speech.recognizedText]);
+
   const coreStatus = useMemo(() => {
     if (speech.isListening) {
       return 'LISTENING';
@@ -257,6 +264,7 @@ export default function HomeScreen() {
 
     return 'READY';
   }, [loading, speech.isListening]);
+
   const shortStatus = useMemo(
     () => formatShortStatus(loading, backendStatus),
     [backendStatus, loading]
@@ -285,8 +293,8 @@ export default function HomeScreen() {
           onFallback: () => {
             addHistory('Telefon', 'Nie udało się otworzyć aplikacji, otwieram wersję web.', true);
           },
-      });
-    } catch (error) {
+        });
+      } catch (error) {
         addHistory(
           'Telefon',
           error instanceof Error ? error.message : 'Nie udało się otworzyć aplikacji ani strony.',
@@ -478,6 +486,7 @@ export default function HomeScreen() {
     }
 
     pollPendingCommand();
+
     const intervalId = setInterval(pollPendingCommand, 1000);
 
     return () => {
@@ -625,6 +634,28 @@ export default function HomeScreen() {
     setMessage(text);
   }, [speech.recognizedText]);
 
+  useEffect(() => {
+    const text = speech.recognizedText.trim();
+
+    if (speech.isListening || !text || loading) {
+      return;
+    }
+
+    if (lastAutoSentText.current === text) {
+      return;
+    }
+
+    lastAutoSentText.current = text;
+
+    const timeoutId = setTimeout(() => {
+      handleUserText(text);
+    }, 250);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [speech.isListening, speech.recognizedText, loading]);
+
   async function checkStatus() {
     setLoading(true);
 
@@ -724,8 +755,12 @@ export default function HomeScreen() {
     }
   }
 
-  function sendMessage() {
-    const cleanText = message.trim();
+  function handleUserText(text: string) {
+    const cleanText = text.trim();
+
+    if (!cleanText || loading) {
+      return;
+    }
 
     if (pendingNoteDraft?.waitingFor === 'title') {
       if (isCancelPendingNoteRequest(cleanText)) {
@@ -753,6 +788,7 @@ export default function HomeScreen() {
       addHistory('Notatki', 'Podaj tytuł notatki.');
       return;
     }
+
     const noteContent = extractNoteContentFromChat(cleanText);
 
     if (noteContent !== null) {
@@ -797,6 +833,10 @@ export default function HomeScreen() {
     sendText(cleanText);
   }
 
+  function sendMessage() {
+    handleUserText(message);
+  }
+
   function sendAppAction(appKey: MobileAppKey, action: 'otwórz' | 'zamknij') {
     if (controlMode === 'phone') {
       if (action === 'zamknij') {
@@ -813,6 +853,7 @@ export default function HomeScreen() {
     }
 
     setLoading(true);
+
     const actionRequest =
       appKey === 'whatsapp' && action === 'zamknij'
         ? sendProcessText(apiConfig, 'zamknij whatsapp')
@@ -836,171 +877,199 @@ export default function HomeScreen() {
       <StatusBar hidden />
       <HudBackground />
       <HudScaleProvider textScale={textScale} hudScale={hudScale}>
-      <KeyboardAvoidingView style={styles.keyboard} behavior="padding">
-      <View style={[styles.header, { gap: scaleHud(9), paddingHorizontal: scaleHud(24), paddingTop: scaleHud(10), paddingBottom: scaleHud(7) }]}>
-        <View style={[styles.headerTop, { minHeight: scaleHud(56), gap: scaleHud(16) }]}>
-          <View>
-            <Text style={[styles.kicker, { fontSize: scaleText(11), letterSpacing: scaleText(4) }]}>LOCAL AI CONTROL</Text>
-            <Text style={[styles.title, { fontSize: scaleText(28), letterSpacing: scaleText(7) }]}>JARVIS MOBILE</Text>
-          </View>
-          {loading ? <ActivityIndicator color="#22f2ff" style={[styles.loadingIndicator, { top: scaleHud(18) }]} /> : null}
-        </View>
-
-        <Pressable onPress={checkStatus} disabled={loading}>
-          <HudPanel
+        <KeyboardAvoidingView style={styles.keyboard} behavior="padding">
+          <View
             style={[
-              styles.shortStatusPanel,
+              styles.header,
               {
-                minHeight: scaleHud(34),
-                paddingHorizontal: scaleHud(12),
-                paddingVertical: scaleHud(5),
+                gap: scaleHud(9),
+                paddingHorizontal: scaleHud(24),
+                paddingTop: scaleHud(10),
+                paddingBottom: scaleHud(7),
               },
             ]}>
-            <Text
-              selectable
-              style={[styles.shortStatusText, { fontSize: scaleText(12), lineHeight: scaleText(16) }]}>
-              {shortStatus}
-            </Text>
-          </HudPanel>
-        </Pressable>
+            <View style={[styles.headerTop, { minHeight: scaleHud(56), gap: scaleHud(16) }]}>
+              <View>
+                <Text style={[styles.kicker, { fontSize: scaleText(11), letterSpacing: scaleText(4) }]}>
+                  LOCAL AI CONTROL
+                </Text>
+                <Text style={[styles.title, { fontSize: scaleText(28), letterSpacing: scaleText(7) }]}>
+                  JARVIS MOBILE
+                </Text>
+              </View>
+              {loading ? <ActivityIndicator color="#22f2ff" style={[styles.loadingIndicator, { top: scaleHud(18) }]} /> : null}
+            </View>
 
-        <View style={[styles.modeSwitch, { gap: scaleHud(10), paddingHorizontal: scaleHud(20) }]}>
-          <HudButton
-            title="Steruj PC"
-            active={controlMode === 'pc'}
-            variant="ghost"
-            onPress={() => setControlMode('pc')}
-            style={[styles.modeButton, { minHeight: scaleHud(36) }]}
-          />
-          <HudButton
-            title="Steruj telefonem"
-            active={controlMode === 'phone'}
-            variant="ghost"
-            onPress={() => setControlMode('phone')}
-            style={[styles.modeButton, { minHeight: scaleHud(36) }]}
-          />
-        </View>
-      </View>
+            <Pressable onPress={checkStatus} disabled={loading}>
+              <HudPanel
+                style={[
+                  styles.shortStatusPanel,
+                  {
+                    minHeight: scaleHud(34),
+                    paddingHorizontal: scaleHud(12),
+                    paddingVertical: scaleHud(5),
+                  },
+                ]}>
+                <Text
+                  selectable
+                  style={[styles.shortStatusText, { fontSize: scaleText(12), lineHeight: scaleText(16) }]}>
+                  {shortStatus}
+                </Text>
+              </HudPanel>
+            </Pressable>
 
-      <View style={styles.main}>
-        {activeTab === 'chat' ? (
-          <ChatScreen
-            history={history}
-            message={message}
-            canSend={canSend}
-            voiceStatus={voiceStatus}
-            isListening={speech.isListening}
-            coreStatus={coreStatus}
-            onMessageChange={setMessage}
-            onSend={sendMessage}
-            onPushToTalkStart={speech.startListening}
-            onPushToTalkEnd={speech.stopListening}
-          />
-        ) : null}
-        {activeTab === 'apps' ? (
-          <AppsScreen controlMode={controlMode} onAction={sendAppAction} loading={loading} />
-        ) : null}
-        {activeTab === 'notes' ? (
-          <NotesScreen
-            notes={notes}
-            selectedNote={selectedNote}
-            selectedNoteId={selectedNoteId}
-            notesStatus={notesStatus}
-            notesLoading={notesLoading}
-            newNoteTitle={newNoteTitle}
-            newNoteContent={newNoteContent}
-            isNewNoteOpen={isNewNoteOpen}
-            onRefresh={() => loadNotes(true)}
-            onSelectNote={openNote}
-            onDeleteNote={deleteNote}
-            onCreateNote={createNote}
-            onNewNoteTitleChange={setNewNoteTitle}
-            onNewNoteContentChange={setNewNoteContent}
-            onToggleNewNote={() => setIsNewNoteOpen((value) => !value)}
-          />
-        ) : null}
-        {activeTab === 'settings' ? (
-          <SettingsScreen
-            backendUrl={backendUrl}
-            apiToken={apiToken}
-            deviceId={deviceId}
-            controlMode={controlMode}
-            backendStatus={backendStatus}
-            lmStudioStatus={lmStudioStatus}
-            modelName={modelName}
-            phonePcLinkStatus="aktywny"
-            textScale={textScale}
-            hudScale={hudScale}
-            voiceEnabled={voiceEnabled}
-            voiceLanguage={voiceLanguage}
-            voiceRate={voiceRate}
-            voicePitch={voicePitch}
-            microphoneEnabled={microphoneEnabled}
-            pttMode={pttMode}
-            onBackendUrlChange={setBackendUrl}
-            onApiTokenChange={setApiToken}
-            onDeviceIdChange={setDeviceId}
-            onControlModeChange={setControlMode}
-            onRefreshConnection={refreshBackendStatus}
-            onTextScaleChange={setTextScale}
-            onHudScaleChange={setHudScale}
-            onVoiceEnabledChange={setVoiceEnabled}
-            onVoiceLanguageChange={setVoiceLanguage}
-            onVoiceRateChange={setVoiceRate}
-            onVoicePitchChange={setVoicePitch}
-            onMicrophoneEnabledChange={setMicrophoneEnabled}
-            onPttModeChange={setPttMode}
-            onTestVoice={async () => {
-              const speechResult = await speakJarvisText('Jarvis gotowy.', {
-                enabled: true,
-                language: voiceLanguage,
-                rate: voiceRate,
-                pitch: voicePitch,
-              });
+            <View style={[styles.modeSwitch, { gap: scaleHud(10), paddingHorizontal: scaleHud(20) }]}>
+              <HudButton
+                title="Steruj PC"
+                active={controlMode === 'pc'}
+                variant="ghost"
+                onPress={() => setControlMode('pc')}
+                style={[styles.modeButton, { minHeight: scaleHud(36) }]}
+              />
+              <HudButton
+                title="Steruj telefonem"
+                active={controlMode === 'phone'}
+                variant="ghost"
+                onPress={() => setControlMode('phone')}
+                style={[styles.modeButton, { minHeight: scaleHud(36) }]}
+              />
+            </View>
+          </View>
 
-              if (!speechResult.ok && speechResult.reason) {
-                addHistory('Głos', speechResult.reason, true);
-              }
-            }}
-            onStopVoice={async () => {
-              const speechResult = await stopJarvisSpeech();
+          <View style={styles.main}>
+            {activeTab === 'chat' ? (
+              <ChatScreen
+                history={history}
+                message={message}
+                canSend={canSend}
+                voiceStatus={voiceStatus}
+                isListening={speech.isListening}
+                coreStatus={coreStatus}
+                onMessageChange={setMessage}
+                onSend={sendMessage}
+                onPushToTalkStart={speech.startListening}
+                onPushToTalkEnd={speech.stopListening}
+              />
+            ) : null}
 
-              if (!speechResult.ok && speechResult.reason) {
-                addHistory('Głos', speechResult.reason, true);
-              }
-            }}
-            onClearSettings={clearSettings}
-          />
-        ) : null}
-      </View>
+            {activeTab === 'apps' ? (
+              <AppsScreen controlMode={controlMode} onAction={sendAppAction} loading={loading} />
+            ) : null}
 
-      <View style={[styles.bottomNav, { gap: scaleHud(6), marginHorizontal: scaleHud(18), marginBottom: scaleHud(7), borderRadius: scaleHud(8), paddingHorizontal: scaleHud(8), paddingTop: scaleHud(9), paddingBottom: scaleHud(7) }]}>
-        <NavButton
-          title="Chat"
-          icon="message-circle"
-          active={activeTab === 'chat'}
-          onPress={() => setActiveTab('chat')}
-        />
-        <NavButton
-          title="Aplikacje"
-          icon="grid"
-          active={activeTab === 'apps'}
-          onPress={() => setActiveTab('apps')}
-        />
-        <NavButton
-          title="Notatki"
-          icon="file-text"
-          active={activeTab === 'notes'}
-          onPress={() => setActiveTab('notes')}
-        />
-        <NavButton
-          title="Ustawienia"
-          icon="settings"
-          active={activeTab === 'settings'}
-          onPress={() => setActiveTab('settings')}
-        />
-      </View>
-      </KeyboardAvoidingView>
+            {activeTab === 'notes' ? (
+              <NotesScreen
+                notes={notes}
+                selectedNote={selectedNote}
+                selectedNoteId={selectedNoteId}
+                notesStatus={notesStatus}
+                notesLoading={notesLoading}
+                newNoteTitle={newNoteTitle}
+                newNoteContent={newNoteContent}
+                isNewNoteOpen={isNewNoteOpen}
+                onRefresh={() => loadNotes(true)}
+                onSelectNote={openNote}
+                onDeleteNote={deleteNote}
+                onCreateNote={createNote}
+                onNewNoteTitleChange={setNewNoteTitle}
+                onNewNoteContentChange={setNewNoteContent}
+                onToggleNewNote={() => setIsNewNoteOpen((value) => !value)}
+              />
+            ) : null}
+
+            {activeTab === 'settings' ? (
+              <SettingsScreen
+                backendUrl={backendUrl}
+                apiToken={apiToken}
+                deviceId={deviceId}
+                controlMode={controlMode}
+                backendStatus={backendStatus}
+                lmStudioStatus={lmStudioStatus}
+                modelName={modelName}
+                phonePcLinkStatus="aktywny"
+                textScale={textScale}
+                hudScale={hudScale}
+                voiceEnabled={voiceEnabled}
+                voiceLanguage={voiceLanguage}
+                voiceRate={voiceRate}
+                voicePitch={voicePitch}
+                microphoneEnabled={microphoneEnabled}
+                pttMode={pttMode}
+                onBackendUrlChange={setBackendUrl}
+                onApiTokenChange={setApiToken}
+                onDeviceIdChange={setDeviceId}
+                onControlModeChange={setControlMode}
+                onRefreshConnection={refreshBackendStatus}
+                onTextScaleChange={setTextScale}
+                onHudScaleChange={setHudScale}
+                onVoiceEnabledChange={setVoiceEnabled}
+                onVoiceLanguageChange={setVoiceLanguage}
+                onVoiceRateChange={setVoiceRate}
+                onVoicePitchChange={setVoicePitch}
+                onMicrophoneEnabledChange={setMicrophoneEnabled}
+                onPttModeChange={setPttMode}
+                onTestVoice={async () => {
+                  const speechResult = await speakJarvisText('Jarvis gotowy.', {
+                    enabled: true,
+                    language: voiceLanguage,
+                    rate: voiceRate,
+                    pitch: voicePitch,
+                  });
+
+                  if (!speechResult.ok && speechResult.reason) {
+                    addHistory('Głos', speechResult.reason, true);
+                  }
+                }}
+                onStopVoice={async () => {
+                  const speechResult = await stopJarvisSpeech();
+
+                  if (!speechResult.ok && speechResult.reason) {
+                    addHistory('Głos', speechResult.reason, true);
+                  }
+                }}
+                onClearSettings={clearSettings}
+              />
+            ) : null}
+          </View>
+
+          <View
+            style={[
+              styles.bottomNav,
+              {
+                gap: scaleHud(6),
+                marginHorizontal: scaleHud(18),
+                marginBottom: scaleHud(7),
+                borderRadius: scaleHud(8),
+                paddingHorizontal: scaleHud(8),
+                paddingTop: scaleHud(9),
+                paddingBottom: scaleHud(7),
+              },
+            ]}>
+            <NavButton
+              title="Chat"
+              icon="message-circle"
+              active={activeTab === 'chat'}
+              onPress={() => setActiveTab('chat')}
+            />
+            <NavButton
+              title="Aplikacje"
+              icon="grid"
+              active={activeTab === 'apps'}
+              onPress={() => setActiveTab('apps')}
+            />
+            <NavButton
+              title="Notatki"
+              icon="file-text"
+              active={activeTab === 'notes'}
+              onPress={() => setActiveTab('notes')}
+            />
+            <NavButton
+              title="Ustawienia"
+              icon="settings"
+              active={activeTab === 'settings'}
+              onPress={() => setActiveTab('settings')}
+            />
+          </View>
+        </KeyboardAvoidingView>
       </HudScaleProvider>
     </SafeAreaView>
   );
@@ -1049,8 +1118,7 @@ const styles = StyleSheet.create({
   keyboard: {
     flex: 1,
   },
-  header: {
-  },
+  header: {},
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
