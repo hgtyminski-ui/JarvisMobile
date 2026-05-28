@@ -649,7 +649,7 @@ export default function HomeScreen() {
 
     const timeoutId = setTimeout(() => {
       handleUserText(text);
-    }, 250);
+    }, 50);
 
     return () => {
       clearTimeout(timeoutId);

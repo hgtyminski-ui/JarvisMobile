@@ -34,6 +34,7 @@ export function useSpeechRecognition() {
 
   const startListening = useCallback(async () => {
     try {
+      setIsListening(true);
       setRecognizedText('');
       setError(null);
 
