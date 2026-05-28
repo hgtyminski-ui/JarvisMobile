@@ -28,7 +28,7 @@ export const MOBILE_APPS = {
   },
   whatsapp: {
     label: 'WhatsApp',
-    deepLink: 'whatsapp://',
+    deepLink: 'whatsapp://send',
     webLink: 'https://wa.me/',
   },
   teams: {
@@ -55,21 +55,84 @@ export type OpenMobileAppResult = {
   usedFallback: boolean;
 };
 
-const OPEN_COMMAND_PREFIXES = ['open', 'otwórz', 'otworz', 'uruchom', 'odpal'];
+const OPEN_COMMAND_PREFIXES = ['open', 'otworz', 'uruchom', 'odpal', 'włącz', 'wlacz'];
+
+const APP_ALIASES: Record<string, MobileAppKey> = {
+  spotify: 'spotify',
+  spotifaj: 'spotify',
+
+  youtube: 'youtube',
+  yt: 'youtube',
+  youtubie: 'youtube',
+
+  netflix: 'netflix',
+
+  steam: 'steam',
+  stim: 'steam',
+
+  discord: 'discord',
+  dc: 'discord',
+
+  whatsapp: 'whatsapp',
+  whatsappa: 'whatsapp',
+  whatsappie: 'whatsapp',
+  'whats app': 'whatsapp',
+  'whatsup': 'whatsapp',
+  'łatsapp': 'whatsapp',
+  'latsapp': 'whatsapp',
+
+  teams: 'teams',
+  teamse: 'teams',
+  microsoftteams: 'teams',
+  'microsoft teams': 'teams',
+};
+
 const WHATSAPP_LINKS = [
-  { url: 'whatsapp://', checkCanOpen: true },
   { url: 'whatsapp://send', checkCanOpen: true },
-  { url: 'intent://send/#Intent;scheme=whatsapp;package=com.whatsapp;end', checkCanOpen: false },
-  { url: 'market://details?id=com.whatsapp', checkCanOpen: false },
+  { url: 'whatsapp://', checkCanOpen: true },
+  { url: 'https://wa.me/', checkCanOpen: false },
 ];
+
+function normalizeCommand(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export function isMobileAppKey(value: string): value is MobileAppKey {
   return value in MOBILE_APPS;
 }
 
+function resolveMobileApp(value: string): MobileAppKey | null {
+  const normalized = normalizeCommand(value).replace(/\s+/g, ' ');
+  const compact = normalized.replace(/\s+/g, '');
+
+  if (isMobileAppKey(normalized)) {
+    return normalized;
+  }
+
+  if (APP_ALIASES[normalized]) {
+    return APP_ALIASES[normalized];
+  }
+
+  if (APP_ALIASES[compact]) {
+    return APP_ALIASES[compact];
+  }
+
+  return null;
+}
+
 export function getMobileAppFromCommand(text: string) {
-  const normalized = text.trim().toLowerCase();
-  const prefix = OPEN_COMMAND_PREFIXES.find((command) => normalized.startsWith(`${command} `));
+  const normalized = normalizeCommand(text);
+
+  const prefix = OPEN_COMMAND_PREFIXES.find(
+    (command) => normalized === command || normalized.startsWith(`${command} `)
+  );
 
   if (!prefix) {
     return null;
@@ -77,7 +140,7 @@ export function getMobileAppFromCommand(text: string) {
 
   const appName = normalized.slice(prefix.length).trim();
 
-  return isMobileAppKey(appName) ? appName : null;
+  return resolveMobileApp(appName);
 }
 
 async function tryOpenUrl(url: string, checkCanOpen = true) {
@@ -102,7 +165,7 @@ async function openWhatsApp(): Promise<OpenMobileAppResult> {
         return { label: MOBILE_APPS.whatsapp.label, usedFallback: index > 0 };
       }
     } catch {
-      // Try the next WhatsApp-compatible Android link.
+      // Try the next WhatsApp-compatible link.
     }
   }
 
