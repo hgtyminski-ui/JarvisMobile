@@ -44,7 +44,14 @@
           }
         }
       ],
-      "@react-native-voice/voice"
+      [
+        "@react-native-voice/voice",
+        {
+          "microphonePermission": "Jarvis potrzebuje dostępu do mikrofonu, żeby rozpoznawać mowę.",
+          "speechRecognitionPermission": "Jarvis potrzebuje rozpoznawania mowy.",
+          "androidX": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
