@@ -1,12 +1,13 @@
 import { Feather } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { HudBackground } from '@/components/HudBackground';
 import { HudButton } from '@/components/HudButton';
 import { HudPanel } from '@/components/HudPanel';
+import { QrPairingScanner } from '@/components/QrPairingScanner';
 import { HudScaleProvider, useHudScale } from '@/components/HudScaleProvider';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { AppsScreen } from '@/screens/AppsScreen';
@@ -180,6 +181,26 @@ function getNotesUiError(error: unknown, fallback: string) {
   return fallback;
 }
 
+function parsePairingPayload(rawValue: string) {
+  const parsed = JSON.parse(rawValue) as unknown;
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('invalid');
+  }
+
+  const record = parsed as Record<string, unknown>;
+  const backendUrl =
+    typeof record.backendUrl === 'string' ? record.backendUrl.trim() : '';
+  const apiToken = typeof record.apiToken === 'string' ? record.apiToken.trim() : '';
+  const deviceId = typeof record.deviceId === 'string' ? record.deviceId.trim() : '';
+
+  if (!backendUrl || !apiToken || !deviceId) {
+    throw new Error('invalid');
+  }
+
+  return { backendUrl, apiToken, deviceId };
+}
+
 export default function HomeScreen() {
   const [backendUrl, setBackendUrl] = useState(DEFAULT_BACKEND_URL);
   const [apiToken, setApiToken] = useState(DEFAULT_API_TOKEN);
@@ -201,6 +222,10 @@ export default function HomeScreen() {
   const [backendStatus, setBackendStatus] = useState<OnlineStatus>('offline');
   const [lmStudioStatus, setLmStudioStatus] = useState<OnlineStatus>('offline');
   const [modelName, setModelName] = useState('brak');
+  const [pairingCode, setPairingCode] = useState('');
+  const [pairingStatus, setPairingStatus] = useState('');
+  const [pairingStatusIsError, setPairingStatusIsError] = useState(false);
+  const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [selectedNote, setSelectedNote] = useState<NoteDetail | null>(null);
@@ -332,6 +357,46 @@ export default function HomeScreen() {
       backendStatusInFlight.current = false;
     }
   }, [apiConfig, apiToken, backendUrl, settingsLoaded]);
+
+  const applyPairingValue = useCallback(
+    async (rawValue: string) => {
+      try {
+        const nextSettings = parsePairingPayload(rawValue);
+        const nextConfig: ApiConfig = {
+          backendUrl: nextSettings.backendUrl,
+          apiToken: nextSettings.apiToken,
+          deviceId: nextSettings.deviceId,
+        };
+
+        setBackendUrl(nextSettings.backendUrl);
+        setApiToken(nextSettings.apiToken);
+        setDeviceId(nextSettings.deviceId);
+        setPairingCode('');
+        setIsQrScannerOpen(false);
+        setPairingStatus('Połączono z Jarvis PC.');
+        setPairingStatusIsError(false);
+
+        try {
+          await getStatus(nextConfig);
+          const status = await getBackendStatus(nextConfig);
+          setBackendStatus(status.backendOnline ? 'online' : 'offline');
+          setLmStudioStatus(status.lmStudioOnline ? 'online' : 'offline');
+          setModelName(status.model || 'brak');
+        } catch {
+          setBackendStatus('offline');
+          setLmStudioStatus('offline');
+          setModelName('brak');
+        }
+
+        addHistory('Pairing', 'Połączono z Jarvis PC.');
+      } catch {
+        setPairingStatus('Nieprawidłowy kod QR.');
+        setPairingStatusIsError(true);
+        setIsQrScannerOpen(false);
+      }
+    },
+    [addHistory]
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -634,28 +699,6 @@ export default function HomeScreen() {
     setMessage(text);
   }, [speech.recognizedText]);
 
-  useEffect(() => {
-    const text = speech.recognizedText.trim();
-
-    if (speech.isListening || !text || loading) {
-      return;
-    }
-
-    if (lastAutoSentText.current === text) {
-      return;
-    }
-
-    lastAutoSentText.current = text;
-
-    const timeoutId = setTimeout(() => {
-      handleUserText(text);
-    }, 50);
-
-    return () => {
-      clearTimeout(timeoutId);
-    };
-  }, [speech.isListening, speech.recognizedText, loading]);
-
   async function checkStatus() {
     setLoading(true);
 
@@ -697,7 +740,7 @@ export default function HomeScreen() {
     addHistory('Ustawienia', 'Ustawienia wyczyszczone.');
   }
 
-  async function sendText(text: string) {
+  const sendText = useCallback(async (text: string) => {
     const cleanText = text.trim();
 
     if (!cleanText) {
@@ -753,9 +796,18 @@ export default function HomeScreen() {
       refreshBackendStatus();
       setLoading(false);
     }
-  }
+  }, [
+    addHistory,
+    apiConfig,
+    loadNotes,
+    refreshBackendStatus,
+    voiceEnabled,
+    voiceLanguage,
+    voicePitch,
+    voiceRate,
+  ]);
 
-  function handleUserText(text: string) {
+  const handleUserText = useCallback((text: string) => {
     const cleanText = text.trim();
 
     if (!cleanText || loading) {
@@ -831,11 +883,42 @@ export default function HomeScreen() {
     }
 
     sendText(cleanText);
-  }
+  }, [
+    addHistory,
+    clearPendingNote,
+    controlMode,
+    loading,
+    openPhoneAppWithHistory,
+    pendingNoteDraft,
+    savePendingNoteWithTitle,
+    sendText,
+  ]);
 
   function sendMessage() {
     handleUserText(message);
   }
+
+  useEffect(() => {
+    const text = speech.recognizedText.trim();
+
+    if (speech.isListening || !text || loading) {
+      return;
+    }
+
+    if (lastAutoSentText.current === text) {
+      return;
+    }
+
+    lastAutoSentText.current = text;
+
+    const timeoutId = setTimeout(() => {
+      handleUserText(text);
+    }, 50);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [handleUserText, loading, speech.isListening, speech.recognizedText]);
 
   function sendAppAction(appKey: MobileAppKey, action: 'otwórz' | 'zamknij') {
     if (controlMode === 'phone') {
@@ -984,11 +1067,14 @@ export default function HomeScreen() {
                 backendUrl={backendUrl}
                 apiToken={apiToken}
                 deviceId={deviceId}
+                pairingCode={pairingCode}
                 controlMode={controlMode}
                 backendStatus={backendStatus}
                 lmStudioStatus={lmStudioStatus}
                 modelName={modelName}
                 phonePcLinkStatus="aktywny"
+                pairingStatus={pairingStatus}
+                pairingStatusIsError={pairingStatusIsError}
                 textScale={textScale}
                 hudScale={hudScale}
                 voiceEnabled={voiceEnabled}
@@ -1000,8 +1086,17 @@ export default function HomeScreen() {
                 onBackendUrlChange={setBackendUrl}
                 onApiTokenChange={setApiToken}
                 onDeviceIdChange={setDeviceId}
+                onPairingCodeChange={setPairingCode}
                 onControlModeChange={setControlMode}
                 onRefreshConnection={refreshBackendStatus}
+                onOpenQrScanner={() => {
+                  setPairingStatus('');
+                  setPairingStatusIsError(false);
+                  setIsQrScannerOpen(true);
+                }}
+                onApplyPairingCode={() => {
+                  void applyPairingValue(pairingCode);
+                }}
                 onTextScaleChange={setTextScale}
                 onHudScaleChange={setHudScale}
                 onVoiceEnabledChange={setVoiceEnabled}
@@ -1033,6 +1128,19 @@ export default function HomeScreen() {
               />
             ) : null}
           </View>
+
+          <Modal visible={isQrScannerOpen} animationType="slide" onRequestClose={() => setIsQrScannerOpen(false)}>
+            <QrPairingScanner
+              onClose={() => setIsQrScannerOpen(false)}
+              onDenied={() => {
+                setPairingStatus('Brak zgody na kamerę.');
+                setPairingStatusIsError(true);
+              }}
+              onScanned={(rawValue) => {
+                void applyPairingValue(rawValue);
+              }}
+            />
+          </Modal>
 
           <View
             style={[

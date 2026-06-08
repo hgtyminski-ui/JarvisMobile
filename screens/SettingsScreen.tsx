@@ -13,11 +13,14 @@ type SettingsScreenProps = {
   backendUrl: string;
   apiToken: string;
   deviceId: string;
+  pairingCode: string;
   controlMode: ControlMode;
   backendStatus: OnlineStatus;
   lmStudioStatus: OnlineStatus;
   modelName: string;
   phonePcLinkStatus: string;
+  pairingStatus: string;
+  pairingStatusIsError: boolean;
   textScale: string;
   hudScale: string;
   voiceEnabled: boolean;
@@ -29,8 +32,11 @@ type SettingsScreenProps = {
   onBackendUrlChange: (value: string) => void;
   onApiTokenChange: (value: string) => void;
   onDeviceIdChange: (value: string) => void;
+  onPairingCodeChange: (value: string) => void;
   onControlModeChange: (value: ControlMode) => void;
   onRefreshConnection: () => void;
+  onOpenQrScanner: () => void;
+  onApplyPairingCode: () => void;
   onTextScaleChange: (value: string) => void;
   onHudScaleChange: (value: string) => void;
   onVoiceEnabledChange: (value: boolean) => void;
@@ -51,11 +57,14 @@ export function SettingsScreen({
   backendUrl,
   apiToken,
   deviceId,
+  pairingCode,
   controlMode,
   backendStatus,
   lmStudioStatus,
   modelName,
   phonePcLinkStatus,
+  pairingStatus,
+  pairingStatusIsError,
   textScale,
   hudScale,
   voiceEnabled,
@@ -67,8 +76,11 @@ export function SettingsScreen({
   onBackendUrlChange,
   onApiTokenChange,
   onDeviceIdChange,
+  onPairingCodeChange,
   onControlModeChange,
   onRefreshConnection,
+  onOpenQrScanner,
+  onApplyPairingCode,
   onTextScaleChange,
   onHudScaleChange,
   onVoiceEnabledChange,
@@ -186,6 +198,45 @@ export function SettingsScreen({
             ]}
           />
         </Field>
+
+        <View style={[styles.pairingActions, { gap: scaleHud(8) }]}>
+          <HudButton title="Skanuj QR" onPress={onOpenQrScanner} style={styles.pairingButton} />
+        </View>
+
+        <Field label="Wklej kod pairing">
+          <TextInput
+            value={pairingCode}
+            onChangeText={onPairingCodeChange}
+            autoCapitalize="none"
+            autoCorrect={false}
+            multiline
+            placeholder='{"backendUrl":"http://192.168.1.10:8000","apiToken":"dev-token","deviceId":"local-pc"}'
+            placeholderTextColor="#60758d"
+            style={[
+              styles.input,
+              styles.pairingInput,
+              {
+                minHeight: scaleHud(92),
+                borderRadius: scaleHud(8),
+                paddingHorizontal: scaleHud(12),
+                paddingVertical: scaleHud(10),
+                fontSize: scaleText(13),
+              },
+            ]}
+          />
+        </Field>
+        <HudButton title="Zastosuj" onPress={onApplyPairingCode} />
+        {pairingStatus ? (
+          <Text
+            selectable
+            style={[
+              styles.pairingStatus,
+              { fontSize: scaleText(12), lineHeight: scaleText(18) },
+              pairingStatusIsError ? styles.pairingStatusError : styles.pairingStatusOk,
+            ]}>
+            {pairingStatus}
+          </Text>
+        ) : null}
 
         <View style={[styles.modeSwitch, { gap: scaleHud(10) }]}>
           <HudButton
@@ -554,6 +605,24 @@ const styles = StyleSheet.create({
   },
   voiceActionButton: {
     flex: 1,
+  },
+  pairingActions: {
+    flexDirection: 'row',
+  },
+  pairingButton: {
+    flex: 1,
+  },
+  pairingInput: {
+    textAlignVertical: 'top',
+  },
+  pairingStatus: {
+    fontWeight: '800',
+  },
+  pairingStatusOk: {
+    color: '#24c7d6',
+  },
+  pairingStatusError: {
+    color: '#ff8eb0',
   },
   connectionRows: {},
   connectionRow: {

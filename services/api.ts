@@ -548,3 +548,24 @@ export async function getPhonePending(config: ApiConfig) {
     return { active: false, command: null };
   }
 }
+
+export type PairingInfo = {
+  backend_url: string;
+  api_token: string;
+  device_id: string;
+};
+
+export async function getPairingInfo(config: ApiConfig): Promise<PairingInfo> {
+  const response = await fetch(`${config.backendUrl}/pairing/info`, {
+    method: 'GET',
+    headers: {
+      'X-Jarvis-Token': config.apiToken,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Nie udało się pobrać danych parowania.');
+  }
+
+  return response.json();
+}
